@@ -669,48 +669,49 @@ fail:
 	return 0;
 }
 
-xr_object* maya_export_tools::create_skl_object(MObject& mesh_obj, MObject& skin_obj)
+xr_object* maya_export_tools::create_skl_object(MObjectArray &mesh_objs, MObjectArray &skin_objs)
 {
 	MStatus status;
 
 	xr_object* object = new xr_object;
 	object->flags() = EOF_DYNAMIC;
+	object->meshes().reserve(mesh_objs.length());
 
-	MFnMesh mesh_fn(mesh_obj);
-
-	xr_mesh* mesh = new xr_mesh;
-	// attach now to allow auto-deletion in case of error
-	object->meshes().push_back(mesh);
-	mesh->name() = mesh_fn.name().asChar();
-
-	MFnSkinCluster skin_fn(skin_obj);
-	if (!(status = extract_bones(skin_fn, object->bones())))
+	MFnSkinCluster skin_fn_0(skin_objs[0]);
+	if (!(status = extract_bones(skin_fn_0, object->bones())))
 		goto fail;
 
-	if (!(status = extract_points(mesh_fn, mesh->points(), mesh->bbox())))
-		goto fail;
+	for (unsigned i = 0; i < mesh_objs.length(); i++) {
+		MFnMesh mesh_fn(mesh_objs[i]);
 
-	if (!(status = extract_faces(mesh_fn, mesh->faces())))
-		goto fail;
+		xr_mesh* mesh = new xr_mesh;
+		// attach now to allow auto-deletion in case of error
+		object->meshes().push_back(mesh);
+		mesh->name() = mesh_fn.name().asChar();
 
-	if (!(status = extract_uvs(mesh_fn, mesh->faces(), mesh->vmrefs(), mesh->vmaps())))
-		goto fail;
-
-	if (!(status = extract_weights(mesh_fn, skin_fn, mesh->faces(), mesh->vmrefs(), mesh->vmaps())))
-		goto fail;
-
-	if (!(status = extract_surfaces(mesh_fn, mesh->surfmaps())))
-		goto fail;
-
-	if (m_target_sdk <= xray_re::SDK_VER_0_4)
-	{
-		if (!(status = extract_smoothing_groups_soc(mesh_fn, mesh->sgroups())))
+		if (!(status = extract_points(mesh_fn, mesh->points(), mesh->bbox())))
 			goto fail;
-	}
-	else
-	{
-		if (!(status = extract_smoothing_groups_cs(mesh_fn, mesh->sgroups())))
+
+		if (!(status = extract_faces(mesh_fn, mesh->faces())))
 			goto fail;
+
+		if (!(status = extract_uvs(mesh_fn, mesh->faces(), mesh->vmrefs(), mesh->vmaps())))
+			goto fail;
+
+		MFnSkinCluster skin_fn(skin_objs[i]);
+		if (!(status = extract_weights(mesh_fn, skin_fn, mesh->faces(), mesh->vmrefs(), mesh->vmaps())))
+			goto fail;
+
+		if (!(status = extract_surfaces(mesh_fn, mesh->surfmaps())))
+			goto fail;
+
+		if (m_target_sdk <= xray_re::SDK_VER_0_4) {
+			if (!(status = extract_smoothing_groups_soc(mesh_fn, mesh->sgroups())))
+				goto fail;
+		} else {
+			if (!(status = extract_smoothing_groups_cs(mesh_fn, mesh->sgroups())))
+				goto fail;
+		}
 	}
 
 	object->partitions().push_back(new xr_partition(object->bones()));
@@ -793,26 +794,20 @@ MStatus maya_export_tools::export_object(const char* path, bool selection_only)
 	return status;
 }
 
-static MStatus find_mesh_and_skin(MObject* mesh_obj, MObject* skin_obj, bool selection_only)
+static MStatus find_mesh_and_skin(MObjectArray &mesh_objs, MObjectArray &skin_objs, bool selection_only)
 {
-	MObjectArray mesh_objs;
 	collect_meshes(mesh_objs, selection_only);
-	switch (mesh_objs.length()) {
-	case 0:
+
+	if(mesh_objs.length() == 0) {
 		msg("xray_re: can't find any mesh to export");
 		MGlobal::displayError("xray_re: can't find any mesh to export");
 		return MS::kFailure;
-
-	case 1:
-		break;
-
-	default:
-		msg("xray_re: can't handle multiple meshes in skeletal object");
-		MGlobal::displayError("xray_re: can't handle multiple meshes in skeletal object");
-		return MS::kFailure;
 	}
 
-	MObjectArray skin_objs;
+	skin_objs.setLength(mesh_objs.length());
+	for (unsigned i = 0; i < skin_objs.length(); i++)
+		skin_objs[i] = MObject::kNullObj;
+
 	for (MItDependencyNodes dep_it(MFn::kSkinClusterFilter); !dep_it.isDone(); dep_it.next()) {
 		MObject skin_obj = dep_it.thisNode();
 		MFnSkinCluster skin_fn(skin_obj);
@@ -820,44 +815,42 @@ static MStatus find_mesh_and_skin(MObject* mesh_obj, MObject* skin_obj, bool sel
 		skin_fn.getOutputGeometry(affected);
 		msg("xray_re: skin cluster %s", skin_fn.name().asChar());
 		MGlobal::displayInfo(MString("xray_re: skin cluster ") + skin_fn.name().asChar());
-		for (unsigned i = affected.length(); i != 0;) {
-			if (affected[--i] == mesh_objs[0])
-				skin_objs.append(skin_obj);
+		for (unsigned i = 0; i < affected.length(); i++) {
+			for (unsigned j = 0; j < mesh_objs.length(); j++) {
+				if (affected[i] == mesh_objs[j]) {
+					if (!skin_objs[j].isNull()) {
+						msg("xray_re: can't handle multiple skin clusters in skeletal object");
+						MGlobal::displayError("xray_re: can't handle multiple skin clusters in skeletal object");
+						return MS::kFailure;
+					}
+					skin_objs[j] = skin_obj;
+				}
+			}
 		}
 	}
-	switch (skin_objs.length()) {
-	case 0:
-		msg("xray_re: can't find skin cluster for mesh");
-		MGlobal::displayError("xray_re: can't find skin cluster for mesh");
-		return MS::kFailure;
 
-	case 1:
-		break;
-
-	default:
-		msg("xray_re: can't handle multiple skin clusters in skeletal object");
-		MGlobal::displayError("xray_re: can't handle multiple skin clusters in skeletal object");
-		return MS::kFailure;
+	for (unsigned i = 0; i < skin_objs.length(); i++) {
+		if (skin_objs[i].isNull()) {
+			msg("xray_re: can't find skin cluster for mesh");
+			MGlobal::displayError("xray_re: can't find skin cluster for mesh");
+			return MS::kFailure;
+		}
 	}
 
-	if (mesh_obj)
-		*mesh_obj = mesh_objs[0];
-	if (skin_obj)
-		*skin_obj = skin_objs[0];
 	return MS::kSuccess;
 }
 
 MStatus maya_export_tools::export_skl_object(const char* path, bool selection_only)
 {
-	MObject mesh_obj, skin_obj;
-	MStatus status = find_mesh_and_skin(&mesh_obj, &skin_obj, selection_only);
+	MObjectArray mesh_objs, skin_objs;
+	MStatus status = find_mesh_and_skin(mesh_objs, skin_objs, selection_only);
 	if (!status)
 		return status;
 
 	m_skeletal = true;
 
 	status = MS::kFailure;
-	if (xr_object* object = create_skl_object(mesh_obj, skin_obj)) {
+	if (xr_object* object = create_skl_object(mesh_objs, skin_objs)) {
 		if (object->save_object(path, m_compressed ? compress_options::compress : compress_options::none))
 			status = MS::kSuccess;
 		delete object;
@@ -873,12 +866,13 @@ MStatus maya_export_tools::export_skl(const char* path, bool selection_only)
 		msg("xray_re: motion export with non-NTSC frame frequency was not tested!");
 		MGlobal::displayWarning("xray_re: motion export with non-NTSC frame frequency was not tested!");
 
-	MObject skin_obj;
-	MStatus status = find_mesh_and_skin(0, &skin_obj, selection_only);
+	MObjectArray mesh_objs;
+	MObjectArray skin_objs;
+	MStatus status = find_mesh_and_skin(mesh_objs, skin_objs, selection_only);
 	if (!status)
 		return status;
 
-	MFnSkinCluster skin_fn(skin_obj);
+	MFnSkinCluster skin_fn(skin_objs[0]);
 	MDagPathArray joints;
 	skin_fn.influenceObjects(joints, &status);
 	unsigned num_joints = joints.length();

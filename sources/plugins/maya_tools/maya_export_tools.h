@@ -48,7 +48,7 @@ private:
 	MStatus			extract_surfaces(MFnMesh& mesh_fn, std::vector<xray_re::xr_surfmap*>& surfmaps);
 	xray_re::xr_surface*	create_surface(const char* surf_name, MFnSet& set_fn);
 	xray_re::xr_object*	create_object(MObjectArray& mesh_objs);
-	xray_re::xr_object*	create_skl_object(MObject& mesh_obj, MObject& skin_obj);
+	xray_re::xr_object*	create_skl_object(MObjectArray &mesh_objs, MObjectArray &skin_objs);
 
 	void			commit_surfaces(std::vector<xray_re::xr_surface*>& surfaces);
 
