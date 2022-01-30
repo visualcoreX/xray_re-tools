@@ -40,7 +40,7 @@
 #define MNoVersionString
 #define MNoPluginEntry
 #include <maya/MTypes.h>
-#if MAYA_API_VERSION >= 20180000
+#if (_MSC_VER < 1600) && (MAYA_API_VERSION >= 20180000) && (MAYA_API_VERSION < 20220000)
 #include <maya/MCppCompat.h>
 #endif
 #include <maya/MGlobal.h>
