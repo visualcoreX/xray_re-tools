@@ -143,7 +143,7 @@ void xr_skl_motion::load(xr_reader& r)
 		m_falloff = r.r_float();
 		m_power = r.r_float();
 		r.r_seq(r.r_u32(), m_bone_motions, xr_reader::f_r_new<xr_bone_motion>(&xr_bone_motion::load_1));
-	} else if (version == SMOTION_VERSION_6) {
+	} else if (version == SMOTION_VERSION_6 || version == SMOTION_VERSION_7) {
 		m_flags = r.r_u8();
 		m_bone_or_part = r.r_u16();
 		m_speed = r.r_float();
@@ -151,8 +151,9 @@ void xr_skl_motion::load(xr_reader& r)
 		m_falloff = r.r_float();
 		m_power = r.r_float();
 		r.r_seq(r.r_u16(), m_bone_motions, xr_reader::f_r_new<xr_bone_motion>(&xr_bone_motion::load_2));
-	} else if (version == SMOTION_VERSION_7) {
-		xr_not_implemented();
+		if (version == SMOTION_VERSION_7) {
+			r.r_seq(r.r_u32(), m_marks, xr_reader::f_r_new<xr_motion_marks>(&xr_motion_marks::load));
+		}
 	} else {
 		xr_not_expected();
 	}
