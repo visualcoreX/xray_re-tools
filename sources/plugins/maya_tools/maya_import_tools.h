@@ -61,6 +61,7 @@ private:
 	maya_object_map	m_joints;
 
 	xray_re::sdk_version m_target_sdk;
+	bool m_use_joint_orient;
 };
 
 #endif

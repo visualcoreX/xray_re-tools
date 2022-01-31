@@ -527,7 +527,7 @@ MStatus initializePlugin(MObject obj)
 		return status;
 	if (!(status = plugin_fn.registerFileTranslator(dm_reader, "", maya_dm_reader::creator, "", "", true)))
 		return status;
-	if (!(status = plugin_fn.registerFileTranslator(ogf_reader, "", maya_ogf_reader::creator, "", "", true)))
+	if (!(status = plugin_fn.registerFileTranslator(ogf_reader, "", maya_ogf_reader::creator, "xray_re_object_translator_options", "", true)))
 		return status;
 	if (!(status = plugin_fn.registerFileTranslator(omf_reader, "", maya_omf_reader::creator, "", "", true)))
 		return status;

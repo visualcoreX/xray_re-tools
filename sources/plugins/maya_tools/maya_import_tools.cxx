@@ -33,6 +33,7 @@
 #include <maya/MPointArray.h>
 #include <maya/MProgressWindow.h>
 #include <maya/MSelectionList.h>
+#include <maya/MQuaternion.h>
 #include "maya_import_tools.h"
 #include "maya_progress.h"
 #include "xr_object.h"
@@ -314,7 +315,11 @@ MStatus maya_import_tools::import_bone(const xr_bone* bone, MObject& parent_obj)
 	joint_fn.setTranslation(MVector(x, y, -z), MSpace::kTransform);
 
 	const fvector3& r = bone->bind_rotate();
-	joint_fn.setRotation(MEulerRotation(-r.x, -r.y, r.z, MEulerRotation::kZXY));
+	if (m_use_joint_orient) {
+		joint_fn.setOrientation(MEulerRotation(-r.x, -r.y, r.z, MEulerRotation::kZXY));
+	}else {
+		joint_fn.setRotation(MEulerRotation(-r.x, -r.y, r.z, MEulerRotation::kZXY));
+	}
 
 	m_joints.insert(maya_object_pair(bone->name(), joint_obj));
 	advance_progress();
@@ -711,8 +716,14 @@ MStatus maya_import_tools::import_motion(const xray_re::xr_skl_motion* smotion, 
 				bmotion->name().c_str() + " referenced by motion " + smotion->name().c_str());
 			continue;
 		}
-		MFnTransform joint_fn(joint_it->second, &status);
+
+		MFnIkJoint joint_fn(joint_it->second, &status);
 		CHECK_MSTATUS(status);
+
+		MQuaternion bind_rotation;
+		joint_fn.getOrientation(bind_rotation);
+
+		MQuaternion inv_bind_rotation = bind_rotation.inverse();
 
 		MString name(clip_name);
 		name += '_';
@@ -735,6 +746,12 @@ MStatus maya_import_tools::import_motion(const xray_re::xr_skl_motion* smotion, 
 
 			MEulerRotation maya_rot(-rot.x, -rot.y, rot.z, MEulerRotation::kZXY);
 			maya_rot.reorderIt(MEulerRotation::kXYZ);
+
+			if (m_use_joint_orient) {
+				MQuaternion maya_rot_quat = maya_rot.asQuaternion() * inv_bind_rotation;
+				maya_rot = maya_rot_quat.asEulerRotation();
+			}
+
 			append_key(times[3], values[3], time, maya_rot.x);
 			append_key(times[4], values[4], time, maya_rot.y);
 			append_key(times[5], values[5], time, maya_rot.z);
@@ -789,6 +806,7 @@ MStatus maya_import_tools::import_motions(const xr_skl_motion_vec& motions, MObj
 void maya_import_tools::set_default_options(void)
 {
 	m_target_sdk = xray_re::SDK_VER_0_4;
+	m_use_joint_orient = false;
 }
 
 MStatus maya_import_tools::parse_options(const MString& options)
@@ -799,8 +817,7 @@ MStatus maya_import_tools::parse_options(const MString& options)
 	if (!(status = options.split(';', params)))
 		return status;
 
-	for (size_t i = 0; i < params.length(); i++)
-	{
+	for (size_t i = 0; i < params.length(); i++) {
 		MStringArray key_value;
 		if (!(status = params[i].split('=', key_value)))
 			return status;
@@ -808,10 +825,12 @@ MStatus maya_import_tools::parse_options(const MString& options)
 		if (key_value.length() < 2)
 			continue;
 
-		if (key_value[0] == "sdk_ver")
-		{
+		if (key_value[0] == "sdk_ver") {
 			xray_re::sdk_version ver = xray_re::sdk_version_from_string(key_value[1].asChar());
 			m_target_sdk = (ver == xray_re::SDK_VER_UNKNOWN ? xray_re::SDK_VER_0_4 : ver);
+		}
+		else if (key_value[0] == "use_joint_orient") {
+			m_use_joint_orient = (key_value[1] == "true");
 		}
 	}
 
