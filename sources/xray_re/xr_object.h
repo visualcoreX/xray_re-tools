@@ -47,10 +47,11 @@ inline size_t hash_value(const xr_raw_surface& surface)
 }
 #endif
 
-enum class compress_options
+struct xr_object_save_options
 {
-	none,
-	compress,
+	bool m_compress;
+
+	explicit xr_object_save_options(bool compress) : m_compress(compress) {}
 };
 
 class xr_object: public xr_surface_factory {
@@ -66,8 +67,8 @@ public:
 
 	virtual bool	load_object(const char* path);
 	virtual void	load_object(xr_reader& r);
-	virtual bool	save_object(const char* path, compress_options compress = compress_options::none) const;
-	virtual bool	save_object(const char* path, const std::string& name, compress_options compress = compress_options::none) const;
+	virtual bool	save_object(const char* path, xr_object_save_options options = xr_object_save_options(false)) const;
+	virtual bool	save_object(const char* path, const std::string& name, xr_object_save_options options = xr_object_save_options(false)) const;
 	virtual void	save_object(xr_writer& w) const;
 
 	virtual bool	load_bones(const char* path);

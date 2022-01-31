@@ -72,7 +72,8 @@ public:
 		void operator()(const std::string& s, xr_writer& w) { w.w_sz(s); }
 	};
 	template<typename T> struct f_w_const {
-		using mem_func = void (T::*)(xr_writer& w) const;
+		//using mem_func = void (T::*)(xr_writer& w) const;
+		typedef void (T::* mem_func)(xr_writer& w) const;
 		explicit f_w_const(mem_func f): m_f(f) {}
 		void operator()(const T* obj, xr_writer& w) { (obj->*m_f)(w); }
 		mem_func m_f;

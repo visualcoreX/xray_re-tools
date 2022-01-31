@@ -786,7 +786,7 @@ MStatus maya_export_tools::export_object(const char* path, bool selection_only)
 
 	MStatus status = MS::kFailure;
 	if (xr_object* object = create_object(mesh_objs)) {
-		if (object->save_object(path, m_compressed ? compress_options::compress : compress_options::none))
+		if (object->save_object(path, xr_object_save_options(m_compressed)))
 			status = MS::kSuccess;
 		delete object;
 	}
@@ -851,7 +851,7 @@ MStatus maya_export_tools::export_skl_object(const char* path, bool selection_on
 
 	status = MS::kFailure;
 	if (xr_object* object = create_skl_object(mesh_objs, skin_objs)) {
-		if (object->save_object(path, m_compressed ? compress_options::compress : compress_options::none))
+		if (object->save_object(path, xr_object_save_options(m_compressed)))
 			status = MS::kSuccess;
 		delete object;
 	}
@@ -1250,8 +1250,7 @@ MStatus maya_export_tools::parse_options(const MString& options)
 	if (!(status = options.split(';', params)))
 		return status;
 
-	for (size_t i = 0; i < params.length(); i++)
-	{
+	for (size_t i = 0; i < params.length(); i++) {
 		MStringArray key_value;
 		if (!(status = params[i].split('=', key_value)))
 			return status;
@@ -1259,13 +1258,10 @@ MStatus maya_export_tools::parse_options(const MString& options)
 		if (key_value.length() < 2)
 			continue;
 
-		if (key_value[0] == "sdk_ver")
-		{
+		if (key_value[0] == "sdk_ver") {
 			xray_re::sdk_version ver = xray_re::sdk_version_from_string(key_value[1].asChar());
 			m_target_sdk = (ver == xray_re::SDK_VER_UNKNOWN ? xray_re::SDK_VER_0_4 : ver);
-		}
-		else if (key_value[0] == "compressed")
-		{
+		} else if (key_value[0] == "compressed") {
 			m_compressed = (key_value[1] == "true");
 		}
 	}
