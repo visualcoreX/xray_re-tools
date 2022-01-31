@@ -331,7 +331,7 @@ struct write_surfmap { void operator()(const xr_surfmap* sm, xr_writer& w) const
 	w.w_seq(sm->faces);
 }};
 
-void xr_mesh::save(xr_writer& w) const
+void xr_mesh::save(xr_writer& w, sdk_version target_sdk) const
 {
 	w.w_chunk<uint16_t>(EMESH_CHUNK_VERSION, EMESH_VERSION);
 	w.w_chunk(EMESH_CHUNK_MESHNAME, m_name);
@@ -342,6 +342,24 @@ void xr_mesh::save(xr_writer& w) const
 	w.open_chunk(EMESH_CHUNK_VERTS);
 	w.w_size_u32(m_points.size());
 	w.w_seq(m_points);
+
+	if (target_sdk <= SDK_VER_1850) {
+		// write adjacency for 1850 sdk
+		for(uint32_t i = 0; i < m_points.size(); i++) {
+			uint32_t adj_cnt = 0;
+			uint32_t adjs[256];
+
+			for(uint32_t j = 0; j < m_faces.size() && adj_cnt < 256; j++) {
+				const lw_face &f = m_faces[j];
+				if(f.v0 == i || f.v1 == i || f.v2 == i)
+					adjs[adj_cnt++] = j;
+			}
+
+			w.w_u8(uint8_t(adj_cnt));
+			w.w_raw(&adjs, sizeof(adjs[0]) * adj_cnt);
+		}
+	}
+
 	w.close_chunk();
 
 	w.open_chunk(EMESH_CHUNK_FACES);

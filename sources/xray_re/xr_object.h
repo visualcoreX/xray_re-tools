@@ -19,6 +19,7 @@
 #include "xr_surface.h"
 #include "xr_surface_factory.h"
 #include "xr_mesh.h"
+#include "xr_sdk_version.h"
 
 namespace xray_re {
 
@@ -50,8 +51,12 @@ inline size_t hash_value(const xr_raw_surface& surface)
 struct xr_object_save_options
 {
 	bool m_compress;
+	sdk_version m_target_sdk;
 
-	explicit xr_object_save_options(bool compress) : m_compress(compress) {}
+	explicit xr_object_save_options(bool compress, sdk_version target_sdk) 
+		: m_compress(compress),
+		  m_target_sdk(target_sdk)
+	{}
 };
 
 class xr_object: public xr_surface_factory {
@@ -67,9 +72,9 @@ public:
 
 	virtual bool	load_object(const char* path);
 	virtual void	load_object(xr_reader& r);
-	virtual bool	save_object(const char* path, xr_object_save_options options = xr_object_save_options(false)) const;
-	virtual bool	save_object(const char* path, const std::string& name, xr_object_save_options options = xr_object_save_options(false)) const;
-	virtual void	save_object(xr_writer& w) const;
+	virtual bool	save_object(const char* path, xr_object_save_options options = xr_object_save_options(false, SDK_VER_0_4)) const;
+	virtual bool	save_object(const char* path, const std::string& name, xr_object_save_options options = xr_object_save_options(false, SDK_VER_0_4)) const;
+	virtual void	save_object(xr_writer& w, sdk_version target_sdk = SDK_VER_0_4) const;
 
 	virtual bool	load_bones(const char* path);
 	virtual void	load_bones(xr_reader& r);

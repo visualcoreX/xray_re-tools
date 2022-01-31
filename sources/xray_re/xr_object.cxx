@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <ctime>
 #include "xr_object.h"
 #include "xr_object_format.h"
 #include "xr_motion.h"
@@ -222,7 +223,7 @@ bool xr_object::load_object(const char* path)
 	return status;
 }
 
-void xr_object::save_object(xr_writer& w) const
+void xr_object::save_object(xr_writer& w, sdk_version target_sdk) const
 {
 	w.w_chunk<uint16_t>(EOBJ_CHUNK_VERSION, EOBJ_VERSION);
 
@@ -233,7 +234,13 @@ void xr_object::save_object(xr_writer& w) const
 	w.w_chunk<uint32_t>(EOBJ_CHUNK_FLAGS, m_flags);
 
 	w.open_chunk(EOBJ_CHUNK_MESHES);
-	w.w_chunks(m_meshes, xr_writer::f_w_const<xr_mesh>(&xr_mesh::save));
+	//w.w_chunks(m_meshes, xr_writer::f_w_const<xr_mesh>(&xr_mesh::save));
+	xr_mesh_vec::const_iterator it = m_meshes.begin(), end = m_meshes.end();
+	for (uint32_t id = 0; it != end; ++it) {
+		w.open_chunk(id++);
+		(*it)->save(w, target_sdk);
+		w.close_chunk();
+	}
 	w.close_chunk();
 
 	w.open_chunk(EOBJ_CHUNK_SURFACES_2);
@@ -274,12 +281,20 @@ void xr_object::save_object(xr_writer& w) const
 	w.w_sz(m_modif_name);
 	w.w_u32(m_modified_time);
 	w.close_chunk();
+
+	// library version for 1850 sdk
+	if (target_sdk <= SDK_VER_1850) {
+		w.open_chunk(EOBJ_CHUNK_0911);
+		w.w_u32(uint32_t(time(0)));
+		w.w_u32(0x00000000);
+		w.close_chunk();
+	}
 }
 
 bool xr_object::save_object(const char* path, xr_object_save_options options) const
 {
 	xr_memory_writer w;
-	save_object(w);
+	save_object(w, options.m_target_sdk);
 
 	xr_memory_writer file;
 	file.w_raw_chunk(EOBJ_CHUNK_MAIN, w.data(), w.tell(), options.m_compress);
@@ -291,7 +306,7 @@ bool xr_object::save_object(const char* path, xr_object_save_options options) co
 bool xr_object::save_object(const char* path, const std::string& name, xr_object_save_options options) const
 {
 	xr_memory_writer w;
-	save_object(w);
+	save_object(w, options.m_target_sdk);
 
 	xr_memory_writer file;
 	file.w_raw_chunk(EOBJ_CHUNK_MAIN, w.data(), w.tell(), options.m_compress);

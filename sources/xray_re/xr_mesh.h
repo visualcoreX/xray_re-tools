@@ -10,6 +10,7 @@
 #include "xr_vector2.h"
 #include "xr_fixed_vector.h"
 #include "xr_aabb.h"
+#include "xr_sdk_version.h"
 
 namespace xray_re {
 
@@ -161,7 +162,7 @@ public:
 			xr_mesh();
 	virtual		~xr_mesh();
 	void		load(xr_reader& r, xr_object& object);
-	void		save(xr_writer& w) const;
+	void		save(xr_writer& w, sdk_version target_sdk = SDK_VER_0_4) const;
 
 	std::string&			name();
 	const std::string&		name() const;
