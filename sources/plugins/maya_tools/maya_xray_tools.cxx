@@ -302,7 +302,7 @@ MStatus maya_ogf_reader::reader(const MFileObject& file, const MString& options,
 			ogf->to_object();
 			advance_progress();
 			end_progress();
-			maya_import_tools(ogf, &status);
+			maya_import_tools(ogf, &status, options);
 			delete ogf;
 		} else {
 			msg("xray_re: can't open %s", path);
