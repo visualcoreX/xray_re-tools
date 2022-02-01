@@ -503,7 +503,7 @@ MStatus maya_import_tools::import_mesh(const xr_mesh* mesh, const xr_bone_vec& b
 	}
 
 	if (!bones.empty()) {
-		MString command("skinCluster -mi 2 -tsb ");
+		MString command("skinCluster -mi 4 -tsb ");
 		for (maya_object_map_it it = m_joints.begin(), end = m_joints.end(); it != end; ++it) {
 			MFnIkJoint joint_fn(it->second, &status);
 			CHECK_MSTATUS(status);
@@ -563,8 +563,14 @@ MStatus maya_import_tools::import_mesh(const xr_mesh* mesh, const xr_bone_vec& b
 			influence_indices[bone_idx] = influence_idx;
 
 			const xr_weight_vmap* vmap = 0;
+			MString bone_name(bone->name().c_str());
+			bone_name.toLowerCase();
+
 			for (xr_vmap_vec_cit it1 = vmaps.begin(), end1 = vmaps.end(); it1 != end1; ++it1) {
-				if ((*it1)->name() == bone->name()) {
+				MString vmap_name((*it1)->name().c_str());
+				vmap_name.toLowerCase();
+
+				if (bone_name == vmap_name) {
 					vmap = static_cast<const xr_weight_vmap*>(*it1);
 					break;
 				}
