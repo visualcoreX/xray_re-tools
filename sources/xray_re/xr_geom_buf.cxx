@@ -104,28 +104,34 @@ void xr_vbuf::load_d3d7(xr_reader& r, size_t n, uint32_t fvf)
 		m_points = new fvector3[n];
 	if (fvf & (D3D_FVF_DIFFUSE|D3D_FVF_NORMAL))
 		m_normals = new fvector3[n];
+
 	unsigned tc = (fvf & D3D_FVF_TEXCOUNT_MASK) >> D3D_FVF_TEXCOUNT_SHIFT;
-	xr_assert(tc == 1 || tc == 2);
-	if (tc == 1 || tc == 2)
-		m_texcoords = new fvector2[n];
-	if (tc == 2)
+	xr_assert(tc > 0);
+
+	m_texcoords = new fvector2[n];
+	if (tc > 1)
 		m_lightmaps = new fvector2[n];
-	xr_assert((fvf & ~(D3D_FVF_POSITION_MASK|D3D_FVF_NORMAL|D3D_FVF_DIFFUSE|D3D_FVF_TEX1|D3D_FVF_TEX2)) == 0);
+
+	xr_assert((fvf & ~(D3D_FVF_POSITION_MASK|D3D_FVF_NORMAL|D3D_FVF_DIFFUSE|D3D_FVF_TEXCOUNT_MASK)) == 0);
 	set_size(n);
 	for (size_t i = 0; i != n; ++i) {
 		r.r_fvector3(m_points[i]);
 		if (fvf & D3D_FVF_NORMAL)
 			r.r_fvector3(m_normals[i]);
-		if (fvf & D3D_FVF_DIFFUSE)
-		{
+		if (fvf & D3D_FVF_DIFFUSE) {
+			// FIXME: it's really vertex color, not normal 
 			fvector3 temp;
 			r_qnormal(r, temp);
 			m_normals[i] = temp;
 		}
-		if (fvf & (D3D_FVF_TEX1|D3D_FVF_TEX2))
-			r.r_fvector2(m_texcoords[i]);
-		if (fvf & D3D_FVF_TEX2)
-			r.r_fvector2(m_lightmaps[i]);
+		for (size_t j = 0; j != tc; j++) {
+			fvector2 unused;
+			switch (j) {
+				case 0: r.r_fvector2(m_texcoords[i]); break;
+				case 1: r.r_fvector2(m_lightmaps[i]); break;
+				default: r.r_fvector2(unused);
+			}
+		}
 	}
 	make_signature();
 }
