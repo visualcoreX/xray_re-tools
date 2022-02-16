@@ -101,12 +101,16 @@ void xr_mesh_vbuf::push(const xr_vbuf& vb, const xr_ibuf* ib, const fmatrix* xfo
 		}
 	}
 	if (has_texcoords()) {
-		xr_assert(vb.has_texcoords());
-		copy(vb.tc(), m_texcoords + size(), vb.size());
-		if (m_tc_fix) {
-			fvector2* uv = m_texcoords + size();
-			for (size_t n = vb.size(); n != 0; --n, ++uv)
-				uv->mul(0.5f);
+		if (m_tc_fix_788 && vb.has_lightmaps()) {
+			copy(vb.lm(), m_texcoords + size(), vb.size());
+		} else {
+			xr_assert(vb.has_texcoords());
+			copy(vb.tc(), m_texcoords + size(), vb.size());
+			if (m_tc_fix) {
+				fvector2* uv = m_texcoords + size();
+				for (size_t n = vb.size(); n != 0; --n, ++uv)
+					uv->mul(0.5f);
+			}
 		}
 	}
 	// intentionally ignoring lightmaps here

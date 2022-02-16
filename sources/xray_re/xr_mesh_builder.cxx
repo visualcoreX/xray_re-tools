@@ -80,6 +80,7 @@ xr_mesh_builder::xr_mesh_builder() {}
 
 xr_mesh_builder::~xr_mesh_builder() {}
 
+void xr_mesh_builder::set_tc_fix_788(bool tc_fix) { m_vb.set_tc_fix_788(tc_fix); }
 void xr_mesh_builder::set_tc_fix(bool tc_fix) { m_vb.set_tc_fix(tc_fix); }
 
 template<typename T> struct xr_mesh_builder::b_proxy::less {

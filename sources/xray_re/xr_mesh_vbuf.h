@@ -16,6 +16,7 @@ public:
 	void		reserve(size_t size);
 	void		push(const xr_vbuf& vb, const xr_ibuf* ib = 0, const fmatrix* xform = 0);
 	void		set_tc_fix(bool tc_fix);
+	void		set_tc_fix_788(bool tc_fix);
 
 protected:
 	void		transform_points(const fvector3* source, fvector3* target, size_t size,
@@ -27,12 +28,14 @@ protected:
 
 private:
 	size_t		m_reserved;
-	bool		m_tc_fix;	// FIXME: hack
+	bool		m_tc_fix;		// FIXME: hack
+	bool		m_tc_fix_788;	// FIXME: hack
 };
 
 inline xr_mesh_vbuf::xr_mesh_vbuf(): m_reserved(0), m_tc_fix(false) {}
 
 inline void xr_mesh_vbuf::set_tc_fix(bool tc_fix) { m_tc_fix = tc_fix; }
+inline void xr_mesh_vbuf::set_tc_fix_788(bool tc_fix) { m_tc_fix_788 = tc_fix; }
 
 } // end of namespace xray_re
 

@@ -139,6 +139,11 @@ void level_tools::process(const cl_parser& cl)
 		if (m_ini->line_exist(m_sect_profile, PA_GAME_DATA))
 			fs.update_path("$temp_game_data$", m_ini->r_string(m_sect_profile, PA_GAME_DATA), "");
 		fs.update_path("$temp_level$", m_ini->r_string(m_sect_profile, PA_GAME_LEVELS), name);
+
+		if (m_ini->line_exist(m_sect_profile, "swap_lightmap_and_base_tc"))
+			m_swap_lightmap_and_base_tc = m_ini->r_bool(m_sect_profile, "swap_lightmap_and_base_tc");
+		else
+			m_swap_lightmap_and_base_tc = false;
 		
 		//load system ini from build for create spawn entity correctly
 		//load_system_ini("$temp_game_data$");

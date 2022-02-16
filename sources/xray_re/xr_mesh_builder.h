@@ -26,6 +26,7 @@ public:
 			xr_mesh_builder();
 	virtual		~xr_mesh_builder();
 
+	void		set_tc_fix_788(bool tc_fix);
 	void		set_tc_fix(bool tc_fix);
 	void		prepare(uint32_t signature = 0, size_t num_vertices = 0, size_t num_indices = 0);
 	void		push(const xr_vbuf& vb, const xr_ibuf& ib, uint16_t texture, uint16_t eshader);

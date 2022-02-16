@@ -214,9 +214,11 @@ void level_tools::push_subdivisions_v5(level_mesh* mesh, uint16_t sector_idx, ui
 	} else if (is_compiled_wallmark(ogf->shader_l())) {
 		;
 	} else {
+		mesh->set_tc_fix_788(m_swap_lightmap_and_base_tc);
 		mesh->push(sector_idx, ogf->vb(), ogf->ib(),
 				m_uniq_textures[ogf->texture_l()],
 				m_uniq_shaders[ogf->shader_l()]);
+		mesh->set_tc_fix_788(false);
 	}
 }
 

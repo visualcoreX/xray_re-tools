@@ -130,6 +130,7 @@ private:
 	const char*		m_fake_gamemtl;
 	const char*		m_ladders_gamemtl;
 	const char*		m_ghost_eshader;
+	bool			m_swap_lightmap_and_base_tc;
 
 	xray_re::xr_shaders_xrlc_lib*	m_shaders_xrlc_lib;
 
