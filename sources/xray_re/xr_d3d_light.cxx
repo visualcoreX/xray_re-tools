@@ -16,7 +16,7 @@ void d3d_light::load(xr_reader& r)
 	falloff = r.r_float();
 	attenuation0 = r.r_float();
 	attenuation1 = r.r_float();
-	attenuation1 = r.r_float();
+	attenuation2 = r.r_float();
 	theta = r.r_float();
 	phi = r.r_float();
 }
