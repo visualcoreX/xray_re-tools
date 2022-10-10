@@ -46,18 +46,96 @@ maya_export_tools::maya_export_tools(const MString& options)
 	parse_options(options);
 }
 
+static bool find_root_joint(MFnIkJoint& joint_fn)
+{
+	MStatus st;	
+	
+	while(true) {
+		unsigned num_parents = joint_fn.parentCount(&st);
+		if(!st)
+			return false;
+			
+		if (num_parents > 1) {
+			msg("xray_re: can't handle multi-parented joint %s", joint_fn.name().asChar());
+			MGlobal::displayError(MString("xray_re: can't handle multi-parented joint ") + joint_fn.name().asChar());
+			return false;
+		} else if (num_parents == 1) {
+			MObject parent_obj = joint_fn.parent(0, &st);
+			if(!st)
+				return false;
+				
+			if (parent_obj.hasFn(MFn::kJoint)) {
+				if(!joint_fn.setObject(parent_obj)) {
+					return false;
+				}
+			} else {
+				return true;
+			}
+		} else {
+			return true;
+		}
+	}
+}
+
+static void recurse_joints(MObjectArray& arr, MFnDagNode& node)
+{
+	MObject node_obj = node.object();
+	if(node_obj.hasFn(MFn::kJoint))
+		arr.append(node_obj);
+
+	for(unsigned int i = 0; i < node.childCount(); i++) {
+		MFnDagNode child(node.child(i));
+		recurse_joints(arr, child);
+	}
+}
+
 static MStatus extract_bones(MFnSkinCluster& skin_fn, xr_bone_vec& bones)
 {
 	MStatus status;
 
-	MDagPathArray joints;
-	skin_fn.influenceObjects(joints, &status);
-	unsigned num_joints = joints.length();
-	if (num_joints == 0) {
+	MDagPathArray infl;
+	skin_fn.influenceObjects(infl, &status);
+	unsigned num_infl = infl.length();
+	if (num_infl == 0) {
 		msg("xray_re: can't find any influence object");
 		MGlobal::displayError("xray_re: can't find any influence object");
 		return MS::kInvalidParameter;
-	} else if (num_joints > MAX_BONES) {
+	}
+
+	MFnIkJoint root_joint(MObject::kNullObj);
+
+	for (unsigned i = num_infl; i != 0;) {
+		--i;
+		const char* name = infl[i].partialPathName().asChar();
+		MFnIkJoint joint_fn(infl[i], &status);
+		if(!status) {
+			msg("xray_re: can't handle non-joint node %s", name);
+			MGlobal::displayError(MString("xray_re: can't handle non-joint node ") + name);
+			return status;
+		}
+
+		if(!find_root_joint(joint_fn)) {
+			msg("xray_re: can't find root joint for '%s' influence", name);
+			MGlobal::displayError("xray_re: can't find root joint for '" + MString(name) + "' influence");
+			return MS::kInvalidParameter;
+		}
+
+		MObject root_obj = root_joint.object();
+		if(!root_obj.isNull() && root_obj != joint_fn.object()) {
+			msg("xray_re: can't handle multiple root joints in skeleton");
+			MGlobal::displayError("xray_re: can't handle multiple root joints in skeleton");
+			return MS::kInvalidParameter;
+		}
+
+		root_joint.setObject(joint_fn.object());
+	}
+
+	MObjectArray joint_objs;
+	recurse_joints(joint_objs, root_joint);
+
+	unsigned int num_joints = joint_objs.length();
+
+	if(num_joints > MAX_BONES) {
 		msg("xray_re: too many joints (%u of %u possible)", num_joints, MAX_BONES);
 		MGlobal::displayError(MString("xray_re: too many joints ") +
 			"(" + num_joints + " of " + MAX_BONES + " possible)");
@@ -67,14 +145,8 @@ static MStatus extract_bones(MFnSkinCluster& skin_fn, xr_bone_vec& bones)
 
 	MString command("dagPose -r -g -bp ");
 	for (unsigned i = num_joints; i != 0;) {
-		MFnIkJoint joint_fn(joints[--i], &status);
-		if (!status) {
-			msg("xray_re: can't handle non-joint node %s",
-				joints[i].partialPathName().asChar());
-			MGlobal::displayError(MString("xray_re: can't handle non-joint node ") +
-				joints[i].partialPathName().asChar());
-			return status;
-		}
+		MFnIkJoint joint_fn(joint_objs[--i], &status);
+
 		command += joint_fn.partialPathName();
 		command += " ";
 
@@ -133,7 +205,7 @@ static MStatus extract_bones(MFnSkinCluster& skin_fn, xr_bone_vec& bones)
 	}
 
 	for (unsigned i = num_joints; i != 0;) {
-		MFnIkJoint joint_fn(joints[--i]);
+		MFnIkJoint joint_fn(joint_objs[--i]);
 		xr_bone* bone = bones[i];
 
 		MTransformationMatrix mat = joint_fn.transformationMatrix(&status);
