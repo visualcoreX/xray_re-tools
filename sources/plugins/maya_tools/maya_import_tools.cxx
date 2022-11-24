@@ -316,7 +316,7 @@ MStatus maya_import_tools::import_bone(const xr_bone* bone, MObject& parent_obj)
 
 	const fvector3& r = bone->bind_rotate();
 	if (m_use_joint_orient) {
-		joint_fn.setOrientation(MEulerRotation(-r.x, -r.y, r.z, MEulerRotation::kZXY));
+		joint_fn.setOrientation(MEulerRotation(-r.x, -r.y, r.z, MEulerRotation::kZXY).asQuaternion());
 	}else {
 		joint_fn.setRotation(MEulerRotation(-r.x, -r.y, r.z, MEulerRotation::kZXY));
 	}
