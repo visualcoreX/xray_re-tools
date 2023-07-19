@@ -24,13 +24,11 @@ public:
 	void		fatal(const char* msg, const char* file, unsigned line);
 
 private:
-	char		m_buf[1023 + 1];
-	size_t		m_buf_size;
-	char*		m_buf_p;
-	xr_writer*	m_log;
+	char		m_prefix[256];
+	FILE*		m_log;
 };
 
-inline xr_log::xr_log(): m_buf_size(sizeof(m_buf) - 1), m_buf_p(m_buf), m_log(0) {}
+inline xr_log::xr_log(): m_log(NULL) { m_prefix[0] = '\0'; }
 
 inline xr_log& xr_log::instance()
 {

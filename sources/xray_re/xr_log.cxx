@@ -12,7 +12,7 @@ using namespace xray_re;
 xr_log::~xr_log()
 {
 	if (m_log)
-		xr_file_system::instance().w_close(m_log);
+		fclose(m_log);
 }
 
 void xr_log::init(const char* name, const char* prefix)
@@ -20,17 +20,10 @@ void xr_log::init(const char* name, const char* prefix)
 	xr_file_system& fs = xr_file_system::instance();
 	std::string path;
 	if (fs.resolve_path(PA_LOGS, name, path))
-		m_log = fs.w_open(path.append(".log").c_str(), true);
+		m_log = fopen(path.append(".log").c_str(), "w");
 	if (prefix) {
-		size_t n = std::strlen(prefix);
-		if (n + 3 > m_buf_size)
-			n = m_buf_size - 3;
-		if (n)
-			std::memcpy(m_buf, prefix, n);
-		m_buf[n++] = ':';
-		m_buf[n++] = ' ';
-		m_buf_size -= n;
-		m_buf_p += n;
+		strncpy(m_prefix, prefix, sizeof(m_prefix));
+		m_prefix[sizeof(m_prefix)-1] = '\0';
 	}
 	if (m_log == 0)
 		diagnostic("xray_re: log started (console only)");
@@ -40,28 +33,28 @@ void xr_log::init(const char* name, const char* prefix)
 
 void xr_log::diagnostic(const char* format, va_list ap)
 {
-#if defined(_MSC_VER) && _MSC_VER >= 1400
-	int n = vsprintf_s(m_buf_p, m_buf_size, format, ap);
-#else
-	int n = vsnprintf(m_buf_p, m_buf_size, format, ap);
-#endif
-	if (n >= 0) {
-		if (m_log)
-			m_log->w_s(m_buf);
-		// m_buf_size initialization in constructor assures
-		// there is space for extra '\0'.
-		m_buf_p[n] = '\n';
-		m_buf_p[n + 1] = '\0';
-		// exclude prefix for the file output
-#	if (MAYA_API_VERSION >= 201300) 
-		fputs(m_buf_p, stderr);
-#	else
-		std::cerr << m_buf_p;
-#	endif
-#if defined(DEBUG) && defined(WIN32)
-		OutputDebugString(m_buf_p);
-#endif
+	if (m_log) {
+		if (m_prefix[0]) {
+			fputs(m_prefix, m_log);
+			fputs(": ", m_log);
+		}
+
+		vfprintf(m_log, format, ap);
+		fputs("\n", m_log);
 	}
+
+	vfprintf(stderr, format, ap);
+	fputs("\n", stderr);
+
+#if defined(DEBUG) && defined(WIN32)
+	char tmpbuf[1024];
+#if defined(_MSC_VER) && _MSC_VER >= 1400
+	int n = vsprintf_s(tmpbuf, sizeof(tmpbuf), format, ap);
+#else
+	int n = vsnprintf(tmpbuf, sizeof(tmpbuf), format, ap);
+#endif
+	OutputDebugString(tmpbuf);
+#endif
 }
 
 void xr_log::diagnostic(const char* format, ...)
