@@ -7,7 +7,9 @@ using namespace xray_re;
 xr_vbuf::xr_vbuf(): m_signature(0),
 	m_points(0), m_normals(0),
 	m_texcoords(0), m_lightmaps(0),
-	m_influences(0), m_colors(0) {}
+	m_influences(0), m_colors(0),
+	m_points2(0), m_normals2(0),
+	m_vertex_hemi(0) {}
 
 xr_vbuf::~xr_vbuf()
 {
@@ -24,11 +26,14 @@ xr_vbuf::xr_vbuf(const xr_vbuf& that): xr_flexbuf(that)
 	m_lightmaps = duplicate(that.m_lightmaps);
 	m_colors = duplicate(that.m_colors);
 	m_influences = duplicate(that.m_influences);
+	m_points2 = duplicate(that.m_points2);
+	m_normals2 = duplicate(that.m_normals2);
+	m_vertex_hemi = duplicate(that.m_vertex_hemi);
 	make_signature();
 }
 
 xr_vbuf::xr_vbuf(size_t n, const fvector3* points, const fvector3* normals, const fvector2* texcoords):
-	m_lightmaps(0), m_influences(0), m_colors(0)
+	m_lightmaps(0), m_influences(0), m_colors(0), m_points2(0), m_normals2(0)
 {
 	set_owner(true);
 	set_size(n);
@@ -48,6 +53,9 @@ xr_vbuf& xr_vbuf::operator=(const xr_vbuf& right)
 	m_lightmaps = duplicate(right.m_lightmaps);
 	m_colors = duplicate(right.m_colors);
 	m_influences = duplicate(right.m_influences);
+	m_points2 = duplicate(right.m_points2);
+	m_normals2 = duplicate(right.m_normals2);
+	m_vertex_hemi = duplicate(right.m_vertex_hemi);
 	make_signature();
 	return *this;
 }
@@ -64,6 +72,9 @@ void xr_vbuf::proxy(const xr_vbuf& that, size_t base, size_t n)
 	m_lightmaps = that.m_lightmaps ? that.m_lightmaps + base : 0;
 	m_colors = that.m_colors ? that.m_colors + base : 0;
 	m_influences = that.m_influences ? that.m_influences + base : 0;
+	m_points2 = that.m_points2 ? that.m_points2 + base : 0;
+	m_normals2 = that.m_normals2 ? that.m_normals2 + base : 0;
+	m_vertex_hemi = that.m_vertex_hemi ? that.m_vertex_hemi + base : 0;
 	make_signature();
 }
 
@@ -77,6 +88,9 @@ void xr_vbuf::clear()
 		delete[] m_lightmaps;
 		delete[] m_influences;
 		delete[] m_colors;
+		delete[] m_points2;
+		delete[] m_normals2;
+		delete[] m_vertex_hemi;
 	}
 	m_points = 0;
 	m_normals = 0;
@@ -84,15 +98,35 @@ void xr_vbuf::clear()
 	m_lightmaps = 0;
 	m_influences = 0;
 	m_colors = 0;
+	m_points2 = 0;
+	m_normals2 = 0;
+	m_vertex_hemi = 0;
 	xr_flexbuf::clear();
 }
 
 static inline void r_qnormal(xr_reader& r, fvector3& n)
 {
-	n.x = r.r_float_q8(-1.f, 1.f);
-	n.y = r.r_float_q8(-1.f, 1.f);
 	n.z = r.r_float_q8(-1.f, 1.f);
+	n.y = r.r_float_q8(-1.f, 1.f);
+	n.x = r.r_float_q8(-1.f, 1.f);
 	r.advance(sizeof(uint8_t));
+}
+
+static inline void r_qnormal_hemi(xr_reader& r, fvector3& n, float& hemi)
+{
+	n.z = r.r_float_q8(-1.f, 1.f);
+	n.y = r.r_float_q8(-1.f, 1.f);
+	n.x = r.r_float_q8(-1.f, 1.f);
+	hemi = r.r_float_q8(0.f, 1.f);
+}
+
+static inline void r_qcolor(xr_reader& r, fcolor& c)
+{
+	/* bgra indeed ? */
+	c.r = r.r_float_q8(0.f, 1.f);
+	c.g = r.r_float_q8(0.f, 1.f);
+	c.b = r.r_float_q8(0.f, 1.f);
+	c.a = r.r_float_q8(0.f, 1.f);
 }
 
 void xr_vbuf::load_d3d7(xr_reader& r, size_t n, uint32_t fvf)
@@ -102,9 +136,10 @@ void xr_vbuf::load_d3d7(xr_reader& r, size_t n, uint32_t fvf)
 	xr_assert((fvf & D3D_FVF_POSITION_MASK) == D3D_FVF_XYZ);
 	if ((fvf & D3D_FVF_POSITION_MASK) == D3D_FVF_XYZ)
 		m_points = new fvector3[n];
-	if (fvf & (D3D_FVF_DIFFUSE|D3D_FVF_NORMAL))
+	if (fvf & D3D_FVF_NORMAL)
 		m_normals = new fvector3[n];
-
+	if (fvf & D3D_FVF_DIFFUSE)
+		m_colors = new fcolor[n];
 	unsigned tc = (fvf & D3D_FVF_TEXCOUNT_MASK) >> D3D_FVF_TEXCOUNT_SHIFT;
 	xr_assert(tc > 0);
 
@@ -118,12 +153,8 @@ void xr_vbuf::load_d3d7(xr_reader& r, size_t n, uint32_t fvf)
 		r.r_fvector3(m_points[i]);
 		if (fvf & D3D_FVF_NORMAL)
 			r.r_fvector3(m_normals[i]);
-		if (fvf & D3D_FVF_DIFFUSE) {
-			// FIXME: it's really vertex color, not normal 
-			fvector3 temp;
-			r_qnormal(r, temp);
-			m_normals[i] = temp;
-		}
+		if (fvf & D3D_FVF_DIFFUSE)
+			r_qcolor(r, m_colors[i]);
 		for (size_t j = 0; j != tc; j++) {
 			fvector2 unused;
 			switch (j) {
@@ -148,14 +179,6 @@ static inline void r_qlightmap(xr_reader& r, fvector2& uv)
 	uv.y = r.r_s16()*(1.f/32768.f);
 }
 
-static inline void r_qcolor(xr_reader& r, fcolor& c)
-{
-	c.r = r.r_float_q8(-1.f, 1.f);
-	c.g = r.r_float_q8(-1.f, 1.f);
-	c.b = r.r_float_q8(-1.f, 1.f);
-	c.a = r.r_float_q8(-1.f, 1.f);
-}
-
 void xr_vbuf::load_d3d9(xr_reader& r, size_t n, const d3d_vertex_element ve[], size_t n_ve)
 {
 	clear();
@@ -174,6 +197,7 @@ void xr_vbuf::load_d3d9(xr_reader& r, size_t n, const d3d_vertex_element ve[], s
 			xr_assert(type == D3D_VE_TYPE_D3DCOLOR);
 			xr_assert(m_normals == 0);
 			m_normals = new fvector3[n];
+			m_vertex_hemi = new float[n];
 			break;
 
 		case D3D_VE_USAGE_TEXCOORD:
@@ -212,7 +236,7 @@ void xr_vbuf::load_d3d9(xr_reader& r, size_t n, const d3d_vertex_element ve[], s
 				r.r_fvector3(m_points[i]);
 				break;
 			case D3D_VE_USAGE_NORMAL:
-				r_qnormal(r, m_normals[i]);
+				r_qnormal_hemi(r, m_normals[i], m_vertex_hemi[i]);
 				break;
 			case D3D_VE_USAGE_TEXCOORD:
 				switch (ve[j].type) {
@@ -296,13 +320,16 @@ void xr_vbuf::load_ogf3(xr_reader& r, size_t n, ogf_vertex_format vf)
 		m_points = new fvector3[n];
 		m_normals = new fvector3[n];
 		m_texcoords = new fvector2[n];
+		m_points2 = new fvector3[n];
+		m_normals2 = new fvector3[n];
 		set_size(n);
 		for (size_t i = 0; i != n; ++i) {
 			uint16_t bone0 = r.r_u16();
 			uint16_t bone1 = r.r_u16();
 			r.r_fvector3(m_points[i]);
 			r.r_fvector3(m_normals[i]);
-			r.advance(2*sizeof(fvector3));	// skip tangent and binormal
+			r.r_fvector3(m_points2[i]);
+			r.r_fvector3(m_normals2[i]);
 			m_influences[i].set_wo_reorder(bone0, bone1, r.r_float());//set_wo_reorder нужно для восстановления модели
 			r.r_fvector2(m_texcoords[i]);
 		}

@@ -138,6 +138,10 @@ public:
 	bool		has_influences() const;
 	bool		has_colors() const;
 	bool		has_lightmaps() const;
+	
+	bool		has_points2() const;
+	bool		has_normals2() const;
+	bool		has_vertex_hemi() const;
 
 	const fvector3&		p(size_t at) const;
 	const fvector3&		n(size_t at) const;
@@ -145,6 +149,10 @@ public:
 	const fvector2&		lm(size_t at) const;
 	const finfluence&	w(size_t at) const;
 	const fcolor&		c(size_t at) const;
+	
+	const fvector3&		p2(size_t at) const;
+	const fvector3&		n2(size_t at) const;
+	const float&		vertex_hemi(size_t at) const;
 
 	const fvector3*		p() const;
 	const fvector3*		n() const;
@@ -152,6 +160,10 @@ public:
 	const fvector2*		lm() const;
 	const finfluence*	w() const;
 	const fcolor*		c() const;
+	const float*		vertex_hemi() const;
+
+	const fvector3* p2() const;
+	const fvector3* n2() const;
 
 	enum {
 		S_POINTS	= 0x01,
@@ -174,6 +186,10 @@ protected:
 	fvector2*	m_lightmaps;
 	finfluence*	m_influences;
 	fcolor*		m_colors;
+	
+	fvector3*	m_points2;
+	fvector3*	m_normals2;
+	float*		m_vertex_hemi;
 };
 
 TYPEDEF_STD_VECTOR(xr_vbuf)
@@ -249,6 +265,9 @@ inline bool xr_vbuf::has_texcoords() const { return !!(m_signature & S_TEXCOORDS
 inline bool xr_vbuf::has_lightmaps() const { return !!(m_signature & S_LIGHTMAPS); }
 inline bool xr_vbuf::has_influences() const { return !!(m_signature & S_INFLUENCES); }
 inline bool xr_vbuf::has_colors() const { return !!(m_signature & S_COLORS); }
+inline bool xr_vbuf::has_points2() const { return !!m_points2; }
+inline bool xr_vbuf::has_normals2() const { return !!m_normals2; }
+inline bool xr_vbuf::has_vertex_hemi() const { return !!m_vertex_hemi; }
 //inline bool xr_vbuf::operator!=(const xr_vbuf& right) const { return !(*this == right); }
 inline const fvector3& xr_vbuf::p(size_t at) const { return m_points[at]; }
 inline const fvector3& xr_vbuf::n(size_t at) const { return m_normals[at]; }
@@ -262,6 +281,14 @@ inline const fvector2* xr_vbuf::tc() const { return m_texcoords; }
 inline const fvector2* xr_vbuf::lm() const { return m_lightmaps; }
 inline const finfluence* xr_vbuf::w() const { return m_influences; }
 inline const fcolor* xr_vbuf::c() const { return m_colors; }
+
+inline const fvector3& xr_vbuf::p2(size_t at) const { return m_points2[at]; }
+inline const fvector3& xr_vbuf::n2(size_t at) const { return m_normals2[at]; }
+inline const float& xr_vbuf::vertex_hemi(size_t at) const { return m_vertex_hemi[at]; }
+
+inline const fvector3* xr_vbuf::p2() const { return m_points2; }
+inline const fvector3* xr_vbuf::n2() const { return m_normals2; }
+inline const float* xr_vbuf::vertex_hemi() const { return m_vertex_hemi; }
 
 //inline bool xr_ibuf::operator!=(const xr_ibuf& right) const { return !(*this == right); }
 inline const uint16_t& xr_ibuf::operator[](size_t at) const { return m_indices[at]; }

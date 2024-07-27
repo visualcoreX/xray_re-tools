@@ -721,6 +721,8 @@ void fix_bind(xr_bone * bone)
 	for (xr_bone_vec_it it = bone->children().begin(), end = bone->children().end(); it != end; ++it)
 		fix_bind(*it);
 
+#if 1
+	// build 1510+
 	if (!bone->is_root())
 	{
 		fmatrix total, parent, local, parent_i, total_i, local_i;
@@ -736,6 +738,29 @@ void fix_bind(xr_bone * bone)
 		bone->bind_offset() = local_i.c;
 		local_i.get_xyz_i(bone->bind_rotate());
 	}
+#else
+	// build 1475
+	if (!bone->is_root())
+	{
+		fmatrix total, parent, local, parent_i;
+		total.set_hpb(bone->bind_rotate());
+		total.c.set(bone->bind_offset());
+		parent.set_hpb(bone->parent()->bind_rotate());
+		parent.c.set(bone->parent()->bind_offset());
+
+		parent_i.invert_43(parent);
+		local.mul_43(parent_i, total);
+
+		bone->bind_offset() = local.c;
+		local.get_xyz_i(bone->bind_rotate());
+	}
+	else
+	{
+		fmatrix m;
+		m.set_hpb(bone->bind_rotate());
+		m.get_xyz_i(bone->bind_rotate());
+	}
+#endif
 }
 
 void xr_ogf_v3::load_s_ikdata_0(xr_reader& r)
@@ -911,41 +936,86 @@ void xr_ogf_v3::load_kinematics(xr_reader& r)
 
 	//переводим координаты вершин из системы относительно кости в систему относительно модели
 	//теперь вершины именно так задаются
-	calculate_bind();
-	for(size_t j = 0; j!= children().size(); ++j)
+
+	// only use this codepath if IKdata is loaded (build 1510+)
+	// otherwise bind-pose will be constructed from 1st motion (see load_kinematics_animated below)
+	// 
+	// also models from build 1475 need a special way to load its IKdata
+	// but there's no way to automatically distinguish 1475 models from 1510+
+
+	if (is_chunk_loaded(OGF3_S_IKDATA_0) || is_chunk_loaded(OGF3_S_IKDATA) || is_chunk_loaded(OGF3_S_IKDATA_2))
 	{
-		const xr_vbuf & vb = children()[j]->vb();
-		for (size_t i = 0; i != vb.size(); ++i)
+		calculate_bind();
+		for (size_t j = 0; j != children().size(); ++j)
 		{
-			const finfluence * weights =  vb.w() + i;
-			int bone = weights->array[0].bone;
-			fvector3 * pv = const_cast<fvector3 *>(vb.p() + i);
-			const fmatrix& xform = bones()[bone]->bind_xform(); 
-			fvector3 temp;
-			temp.transform(*pv, xform);
-			*pv = temp;
+			const xr_vbuf& vb = children()[j]->vb();
+			for (size_t i = 0; i != vb.size(); ++i)
+			{
+				const finfluence* weights = vb.w() + i;
+				int bone = weights->array[0].bone;
+				fvector3* pv = const_cast<fvector3*>(vb.p() + i);
+				const fmatrix& xform = bones()[bone]->bind_xform();
+				fvector3 temp;
+				temp.transform(*pv, xform);
+				*pv = temp;
+			}
 		}
 	}
 }
+
+void get_bone_xform(fmatrix &result, const xr_ogf* ogf, int bone_id)
+{
+	const xr_bone* parent = ogf->bones()[bone_id]->parent();
+
+	fvector3 t, r;
+	fmatrix local_xform;
+	ogf->motions()[0]->evaluate(bone_id, 0.f, t, r);
+	local_xform.set_xyz_i(r); 
+	local_xform.c.set(t);
+
+	if (parent) {
+		fmatrix parent_xform; get_bone_xform(parent_xform, ogf, parent->id());
+		result.mul_43(parent_xform, local_xform);
+	} else {
+		result = local_xform;
+	}
+}
+
+void get_bone_xform_local(fmatrix& result, const xr_ogf* ogf, int bone_id)
+{
+	const xr_bone* parent = ogf->bones()[bone_id]->parent();
+
+	fvector3 t, r;
+	fmatrix local_xform;
+	ogf->motions()[0]->evaluate(bone_id, 0.f, t, r);
+	local_xform.set_xyz_i(r);
+	local_xform.c.set(t);
+
+	result = local_xform;
+}
+
 void xr_ogf_v3::load_kinematics_animated(xr_reader& r) {
 	load_kinematics(r);
 	xr_reader* s = r.open_chunk(OGF3_S_MOTION_REFS);
 	if (s) {
 		load_s_motion_refs(*s);
 		r.close_chunk(s);
-	} else {
+	}
+	else {
 		s = r.open_chunk(OGF3_S_SMPARAMS_NEW);
 		if (s) {
 			load_s_smparams_new(*s);
 			xr_assert(s->eof());
 			r.close_chunk(s);
-		} else {
+		}
+		else {
 			s = r.open_chunk(OGF3_S_SMPARAMS);
 			if (s) {
 				load_s_smparams(*s);
 				xr_assert(s->eof());
 				r.close_chunk(s);
-			} else {
+			}
+			else {
 				load_s_smparams();
 			}
 		}
@@ -955,7 +1025,8 @@ void xr_ogf_v3::load_kinematics_animated(xr_reader& r) {
 			load_s_motions_new(*s);
 			xr_assert(s->eof());
 			r.close_chunk(s);
-		} else {
+		}
+		else {
 			s = r.open_chunk(OGF3_S_MOTIONS);
 			xr_assert(s != 0);
 			load_s_motions(*s);
@@ -963,8 +1034,73 @@ void xr_ogf_v3::load_kinematics_animated(xr_reader& r) {
 			r.close_chunk(s);
 		}
 	}
-}
 
+	//переводим координаты вершин из системы относительно кости в систему относительно модели
+	//теперь вершины именно так задаются
+
+	// restore bind pose from 1st motion
+
+	if (!is_chunk_loaded(OGF3_S_IKDATA_0) && !is_chunk_loaded(OGF3_S_IKDATA) && !is_chunk_loaded(OGF3_S_IKDATA_2))
+	{
+
+		for (size_t j = 0; j != children().size(); ++j)
+		{
+			if (this->motions().empty()) {
+				printf("no motions :(\n");
+				break;
+			}
+
+			const xr_vbuf& vb = children()[j]->vb();
+			for (size_t i = 0; i != vb.size(); ++i)
+			{
+				const finfluence* weights = vb.w() + i;
+
+				if (weights->count == 2) {
+					int bone1 = weights->array[0].bone;
+					int bone2 = weights->array[1].bone;
+
+					fmatrix xform1, xform2;
+					get_bone_xform(xform1, this, bone1);
+					get_bone_xform(xform2, this, bone2);
+
+					fvector3* pv = const_cast<fvector3*>(vb.p() + i);
+					fvector3* pv2 = const_cast<fvector3*>(vb.p2() + i);
+					fvector3 temp, temp2;
+
+					temp.transform(*pv, xform1);
+					temp2.transform(*pv2, xform2);
+
+					(*pv).lerp(temp, temp2, weights->array[1].weight);
+
+				}
+				else {
+					int bone = weights->array[0].bone;
+
+					fmatrix xform;
+					get_bone_xform(xform, this, bone);
+
+					fvector3* pv = const_cast<fvector3*>(vb.p() + i);
+					fvector3 temp;
+
+					temp.transform(*pv, xform);
+					*pv = temp;
+				}
+			}
+		}
+
+		for (size_t j = 0; j != bones().size(); ++j)
+		{
+			xr_bone* bone = bones()[j];
+
+			fmatrix xform;
+			get_bone_xform_local(xform, this, bone->id());
+
+			xform.get_xyz_i(bone->bind_rotate());
+			bone->bind_offset() = xform.c;
+		}
+
+	}
+}
 inline void xr_ogf_v3::load_skeletonx(xr_reader& r)
 {
 	xr_assert(r.find_chunk(OGF3_VERTICES));
