@@ -6,7 +6,7 @@
 
 #include <string>
 #include <vector>
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && _MSC_VER < 1939
 #if _MSC_VER >= 1900
 #define _SILENCE_STDEXT_HASH_DEPRECATION_WARNINGS
 #endif
@@ -37,7 +37,7 @@ enum {
 class xr_reader;
 class xr_writer;
 
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && _MSC_VER < 1939
 inline size_t hash_value(const xr_raw_surface& surface)
 {
 #if SIZE_MAX == _UI64_MAX
@@ -137,7 +137,8 @@ protected:
 
 	const xr_surface_factory*
 				m_surface_factory;
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && _MSC_VER < 1939
+	// в говностудии 2022 это не работает
 	stdext::hash_map<xr_raw_surface, xr_surface*>
 #else
 	std::map<xr_raw_surface, xr_surface*>
