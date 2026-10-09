@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <stdexcept>
 #include "xr_ogf_v4.h"
 #include "xr_file_system.h"
 #include "xr_utils.h"
@@ -349,20 +350,27 @@ void xr_ogf_v4::load_s_motions(xr_reader& r)
 	if (!r.find_chunk(0))
 		xr_not_expected();
 	size_t num_motions = r.r_u32();
-	xr_assert(m_motions.size() == num_motions);
+	if (m_motions.size() != num_motions) {
+		msg("motion count mismatch (%u in params, %u in data)",
+			unsigned(m_motions.size()), unsigned(num_motions));
+		throw xr_error();
+	}
+	// like the release engine, match motions to their definitions by order:
+	// protected models have scrambled names here (and random motion ids).
+	unsigned mismatched = 0;
 	for (uint32_t id = 1; id <= num_motions; ++id) {
 		if (!r.find_chunk(id))
 			xr_not_expected();
 
 		const char* name = r.skip_sz();
-		motion_io* smotion = static_cast<motion_io*>(find_motion(name));
-		if (smotion == 0) {
-			msg("unknown motion %s", name);
-			throw xr_error();
-		}
+		motion_io* smotion = static_cast<motion_io*>(m_motions[id - 1]);
+		if (smotion->name() != name)
+			++mismatched;
 		smotion->import_bone_motions(r, m_bones);
 		r.debug_find_chunk();
 	}
+	if (mismatched)
+		msg("%u motion name(s) in data differ from params, matched by order", mismatched);
 	set_chunk_loaded(OGF4_S_MOTIONS);
 }
 
@@ -434,24 +442,31 @@ void xr_ogf_v4::load_s_smparams(xr_reader& r)
 	setup_partitions();
 
 	assert(m_motions.empty());
+	// the stored motion id is not used by the engine (motion data follows the
+	// order of definitions) and is randomized in protected models.
 	size_t num_motions = r.r_u16();
-	m_motions.resize(num_motions);
+	m_motions.reserve(num_motions);
 	for (; num_motions; --num_motions) {
 		motion_io* smotion = new xr_ogf_v4::motion_io;
-		m_motions.at(smotion->import_params(r, version)) = smotion;
+		m_motions.push_back(smotion);
+		smotion->import_params(r, version);
 	}
-	assert(std::find(m_motions.begin(), m_motions.end(), static_cast<xr_skl_motion*>(0)) == m_motions.end());
 
 	set_chunk_loaded(OGF4_S_SMPARAMS);
 }
 
 inline void xr_ogf_v4::bone_io::import_ikdata(xr_reader& r)
 {
+	// the engine only checks for version > 0 (friction present); some models
+	// carry garbage here (seen in the first bone), so don't insist on 1.
 	uint32_t version = r.r_u32();
-	xr_assert(version == OGF4_S_JOINT_IK_DATA_VERSION);
 	r.r_sz(m_gamemtl);
 	r.r(m_shape);
 	r.r(m_joint_ik_data);
+	if (version == 0) {
+		m_joint_ik_data.friction = 0.0f;
+		r.advance(-4);
+	}
 	r.r_fvector3(m_bind_rotate);
 	r.r_fvector3(m_bind_offset);
 	m_bind_length = 0.5f;
@@ -554,7 +569,7 @@ void xr_ogf_v4::load_hierrarhy_visual(xr_reader& r)
 		r.debug_find_chunk();
 	} else {
 		xr_reader* s = r.open_chunk(OGF4_CHILDREN);
-		assert(s);
+		xr_assert(s);
 		load_children(*s);
 		r.close_chunk(s);
 	}
@@ -768,6 +783,10 @@ bool xr_ogf_v4::load_omf(const char* path)
 	try {
 		load_omf(*r);
 	} catch (xr_error) {
+		clear();
+		status = false;
+	} catch (std::exception& e) {
+		msg("load_omf: %s", e.what());
 		clear();
 		status = false;
 	}

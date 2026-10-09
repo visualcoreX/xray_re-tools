@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <stdexcept>
 #include "xr_math.h"
 #include "xr_ogf.h"
 #include "xr_ogf_v3.h"
@@ -82,6 +83,10 @@ xr_ogf* xr_ogf::load_ogf(const std::string& path)
 		} catch (xr_error) {
 			delete ogf;
 			ogf = 0;
+		} catch (std::exception& e) {
+			msg("load_ogf: %s", e.what());
+			delete ogf;
+			ogf = 0;
 		}
 	}
 	fs.r_close(r);
@@ -101,11 +106,16 @@ bool xr_ogf::load_ogf(const char* path, const std::string& name)
 
 void xr_ogf::check_unhandled_chunks(xr_reader& r) const
 {
-	// FIXME: there is no need to "open" chunks
-	uint32_t id;
-	for (xr_reader* s = 0; (s = r.open_chunk_next(id, s)) != 0;) {
+	// walk chunk headers only: opening would try to decompress chunks that
+	// merely have the compression bit set (seen in some modded models).
+	for (r.seek(0); r.elapsed() >= 8;) {
+		uint32_t id = r.r_u32() & ~xr_reader::CHUNK_COMPRESSED;
+		uint32_t size = r.r_u32();
+		if (size > r.elapsed())
+			break;
 		if (!is_chunk_loaded(id))
 			msg("unhandled chunk %u", id);
+		r.advance(size);
 	}
 }
 
