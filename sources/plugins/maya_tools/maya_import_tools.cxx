@@ -694,12 +694,13 @@ MStatus maya_import_tools::import_motion(const xray_re::xr_skl_motion* smotion, 
 	MString clip_name(smotion->name().c_str());
 
 	double fps = smotion->fps();
-	double start_time = smotion->frame_start()/fps;
-	double end_time = smotion->frame_end()/fps;
+	double start_time = smotion->frame_start() / fps;
+	int32_t frame_span = smotion->frame_end() - smotion->frame_start();
+	double duration = (frame_span > 1 ? frame_span - 1 : 0) / fps;
 
 	MFnClip clip_fn;
 	MObject clip_obj = clip_fn.createSourceClip(MTime(start_time, MTime::kSeconds),
-			MTime(end_time - start_time, MTime::kSeconds), dg_modifier, &status);
+		MTime(duration, MTime::kSeconds), dg_modifier, &status);
 	if (!status) {
 		msg("xray_re: can't create clip %s", clip_name.asChar());
 		MGlobal::displayError(MString("xray_re: can't create clip ") + clip_name.asChar());

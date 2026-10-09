@@ -137,10 +137,7 @@ void xr_envelope::insert_key(float time, float value)
 		}
 	}
 #endif
-	xr_key* key = new xr_key;
-	key->time = time;
-	key->value = value;
-	key->shape = xr_key::SHAPE_STEP;
+	xr_key* key = new xr_key(xr_key::SHAPE_TCB, time, value);
 	m_keys.insert(it, key);
 }
 
