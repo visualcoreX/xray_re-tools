@@ -23,12 +23,18 @@ public:
 
 	void		fatal(const char* msg, const char* file, unsigned line);
 
+	// throw xr_error from fatal() instead of aborting (for host applications).
+	void		set_throw_on_fatal(bool value);
+
 private:
 	char		m_prefix[256];
 	FILE*		m_log;
+	bool		m_throw_on_fatal;
 };
 
-inline xr_log::xr_log(): m_log(NULL) { m_prefix[0] = '\0'; }
+inline xr_log::xr_log(): m_log(NULL), m_throw_on_fatal(false) { m_prefix[0] = '\0'; }
+
+inline void xr_log::set_throw_on_fatal(bool value) { m_throw_on_fatal = value; }
 
 inline xr_log& xr_log::instance()
 {

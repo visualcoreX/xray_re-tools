@@ -69,6 +69,8 @@ void xr_log::fatal(const char* message, const char* file, unsigned line)
 {
 	diagnostic("[bug] %s at %s:%u", message, file, line);
 //	MessageBoxA(NULL, m_buf, "xray_re", MB_OK);
+	if (m_throw_on_fatal)
+		throw xr_error();
 	std::abort();
 }
 

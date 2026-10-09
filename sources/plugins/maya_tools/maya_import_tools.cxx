@@ -34,6 +34,7 @@
 #include <maya/MProgressWindow.h>
 #include <maya/MSelectionList.h>
 #include <maya/MQuaternion.h>
+#include <set>
 #include "maya_import_tools.h"
 #include "maya_progress.h"
 #include "xr_object.h"
@@ -715,14 +716,10 @@ MStatus maya_import_tools::import_motion(const xray_re::xr_skl_motion* smotion, 
 	for (xr_bone_motion_vec_cit it = smotion->bone_motions().begin(),
 			end = smotion->bone_motions().end(); it != end; ++it) {
 		const xr_bone_motion* bmotion = *it;
+		// missing bones are reported once by import_motions()
 		maya_object_map_it joint_it = m_joints.find(bmotion->name());
-		if (joint_it == m_joints.end()) {
-			msg("xray_re: can't find bone %s referenced by motion %s",
-				bmotion->name().c_str(), smotion->name().c_str());
-			MGlobal::displayError(MString("xray_re: can't find bone ") +
-				bmotion->name().c_str() + " referenced by motion " + smotion->name().c_str());
+		if (joint_it == m_joints.end())
 			continue;
-		}
 
 		MFnIkJoint joint_fn(joint_it->second, &status);
 		CHECK_MSTATUS(status);
@@ -797,6 +794,28 @@ MStatus maya_import_tools::import_motion(const xray_re::xr_skl_motion* smotion, 
 MStatus maya_import_tools::import_motions(const xr_skl_motion_vec& motions, MObject& character_obj)
 {
 	MStatus status = MS::kFailure;
+
+	// check the skeleton once instead of complaining for every motion
+	std::set<std::string> missing;
+	size_t num_found = 0;
+	for (xr_skl_motion_vec_cit it = motions.begin(), end = motions.end(); it != end; ++it) {
+		for (xr_bone_motion_vec_cit it1 = (*it)->bone_motions().begin(),
+				end1 = (*it)->bone_motions().end(); it1 != end1; ++it1) {
+			if (m_joints.find((*it1)->name()) == m_joints.end())
+				missing.insert((*it1)->name());
+			else
+				++num_found;
+		}
+	}
+	if (!motions.empty() && num_found == 0) {
+		msg("xray_re: motions don't match the selected character (no common bones)");
+		MGlobal::displayError("xray_re: motions don't match the selected character (no common bones)");
+		return MS::kFailure;
+	}
+	for (std::set<std::string>::const_iterator it = missing.begin(), end = missing.end(); it != end; ++it) {
+		msg("xray_re: can't find bone %s referenced by motions", it->c_str());
+		MGlobal::displayWarning(MString("xray_re: can't find bone ") + it->c_str() + " referenced by motions");
+	}
 
 	start_progress(motions.size(), "Importing motions");
 	for (xr_skl_motion_vec_cit it = motions.begin(), end = motions.end();

@@ -140,6 +140,20 @@ public:
 	static void*		creator();
 };
 
+// must be called from a catch block.
+static void report_exception(const MString& path)
+{
+	MString what("internal error");
+	try {
+		throw;
+	} catch (std::exception& e) {
+		what = e.what();
+	} catch (...) {
+	}
+	msg("xray_re: %s while importing %s", what.asChar(), path.asChar());
+	MGlobal::displayError(MString("xray_re: ") + what + " while importing " + path);
+}
+
 static inline MString extract_extension(const MFileObject& file)
 {
 	MString name(file.resolvedName());
@@ -163,7 +177,7 @@ MStatus maya_dm_reader::reader(const MFileObject& file, const MString& options, 
 			end_progress();
 			maya_import_tools(dm, &status);
 		} else {
-			msg("xray_re: can't open %s", path);
+			msg("xray_re: can't open %s", path.asChar());
 			MGlobal::displayError(MString("xray_re: can't open ") + path);
 			end_progress();
 		}
@@ -198,7 +212,7 @@ MStatus maya_object_translator::reader(const MFileObject& file, const MString& o
 		if (object->load_object(path.asChar()))
 			maya_import_tools(object, &status, options);
 		else {
-			msg("xray_re: can't open %s", path);
+			msg("xray_re: can't open %s", path.asChar());
 			MGlobal::displayError(MString("xray_re: can't open ") + path);
 		}
 		delete object;
@@ -299,13 +313,19 @@ MStatus maya_ogf_reader::reader(const MFileObject& file, const MString& options,
 		xr_ogf* ogf = xr_ogf::load_ogf(path.asChar());
 		if (ogf) {
 			advance_progress();
-			ogf->to_object();
-			advance_progress();
-			end_progress();
-			maya_import_tools(ogf, &status, options);
+			try {
+				ogf->to_object();
+				advance_progress();
+				end_progress();
+				maya_import_tools(ogf, &status, options);
+			} catch (...) {
+				end_progress();
+				report_exception(path);
+				status = MS::kFailure;
+			}
 			delete ogf;
 		} else {
-			msg("xray_re: can't open %s", path);
+			msg("xray_re: can't open %s", path.asChar());
 			MGlobal::displayError(MString("xray_re: can't open ") + path);
 			end_progress();
 		}
@@ -339,15 +359,20 @@ MStatus maya_omf_reader::reader(const MFileObject& file, const MString& options,
 		xr_ogf_v4* omf = new xr_ogf_v4;
 		if (omf->load_omf(path.asChar())) {
 			advance_progress();
-			maya_import_tools imp_tools;
-			MObject character_obj = imp_tools.lookup_character(&status);
-			if (status) {
-				imp_tools.reset_animation_state();
-				status = imp_tools.import_motions(omf->motions(), character_obj);
+			try {
+				maya_import_tools imp_tools;
+				MObject character_obj = imp_tools.lookup_character(&status);
+				if (status) {
+					imp_tools.reset_animation_state();
+					status = imp_tools.import_motions(omf->motions(), character_obj);
+				}
+			} catch (...) {
+				report_exception(path);
+				status = MS::kFailure;
 			}
 			end_progress();
 		} else {
-			msg("xray_re: can't open %s", path);
+			msg("xray_re: can't open %s", path.asChar());
 			MGlobal::displayError(MString("xray_re: can't open ") + path);
 			end_progress();
 		}
@@ -379,7 +404,7 @@ MStatus maya_skl_translator::reader(const MFileObject& file, const MString& opti
 		const MString path = file.resolvedFullName();
 		xr_skl_motion* smotion = new xr_skl_motion;
 		if (!smotion->load_skl(path.asChar())) {
-			msg("xray_re: can't open %s", path);
+			msg("xray_re: can't open %s", path.asChar());
 			MGlobal::displayError(MString("xray_re: can't open ") + path);
 			delete smotion;
 			return MS::kFailure;
@@ -436,7 +461,7 @@ MStatus maya_skls_reader::reader(const MFileObject& file, const MString& options
 		const MString path = file.resolvedFullName();
 		xr_object* object = new xr_object;
 		if (!object->load_skls(path.asChar())) {
-			msg("xray_re: can't open %s", path);
+			msg("xray_re: can't open %s", path.asChar());
 			MGlobal::displayError(MString("xray_re: can't open ") + path);
 			delete object;
 			return MS::kFailure;
@@ -513,6 +538,8 @@ MStatus initializePlugin(MObject obj)
 		return MS::kFailure;
 	}
 	xr_log::instance().init("xrayMayaTools");
+	// a broken file must not take Maya down with it.
+	xr_log::instance().set_throw_on_fatal(true);
 	msg("X-Ray Maya tools for Maya %s ", MGlobal::mayaVersion().asChar());
 	MGlobal::displayInfo(MString("X-Ray Maya tools for Maya ") + MGlobal::mayaVersion());
 	msg("xray_re built on %s ", BUILD_DATE);
