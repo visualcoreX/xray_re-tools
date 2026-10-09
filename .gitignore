@@ -1,4 +1,4 @@
-/intermediate
+intermediate/
 *.suo
 *.opendb
 *.VC.db
