@@ -1,7 +1,5 @@
 # xray_re-tools
 
-Fork of [abramcumner/xray_re-tools](https://github.com/abramcumner/xray_re-tools) (originally http://xray.codeplex.com/).
-
 X-Ray unofficial toolset for complex use with official S.T.A.L.K.E.R. MOD SDK. The code to load/save X-Ray files closely follows the GSC one. Regarding the rest source code, you can do whatever you want, just do not say you wrote it.
 
 The toolset includes:
