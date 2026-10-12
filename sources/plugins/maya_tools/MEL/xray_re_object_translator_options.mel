@@ -19,6 +19,9 @@ global proc int xray_re_object_translator_options(string $parent, string $action
 		checkBox -label "Compressed" "compressed";
 		checkBox -label "Use 'Joint Orient' for bind rotation" "use_joint_orient";
 
+		// skeletal objects: motion references, like ActorEditor's "Motion reference"
+		button -label "Motion references..." -c "source xray_re_motion_refs.mel; xray_re_motion_refs_window();";
+
 		string $params[];
 		tokenize($options, ";", $params);
 		for($i = 0; $i < size($params); $i++)

@@ -43,6 +43,8 @@ public:
 	MStatus			export_skl_object(const char* path, bool selection_only = false);
 	MStatus			export_skl(const char* path, bool selection_only = false);
 	MStatus			export_anm(const char* path, bool selection_only = false);
+	// game skeletal motions: Time Editor animation sources of the skin's skeleton
+	MStatus			export_omf(const char* path, bool selection_only = false);
 
 private:
 	MStatus			extract_surfaces(MFnMesh& mesh_fn, std::vector<xray_re::xr_surfmap*>& surfmaps);
@@ -61,6 +63,10 @@ private:
 
 	xray_re::sdk_version m_target_sdk;
 	bool m_compressed;
+	bool m_force_16bit_t;	// OMF: 16-bit translation keys for every bone
+	bool m_omf_float_keys;	// OMF: 32-bit float keys (KPF_FLOAT) for every motion
+	bool m_omf_from_scene;	// OMF: the scene animation instead of the anim sources
+	std::string m_omf_motion_name;	// OMF: name of the scene animation, file name if empty
 };
 
 #endif

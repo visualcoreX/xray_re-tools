@@ -1,0 +1,210 @@
+// Motion references of a skeletal object, like "Global\Motion reference" of
+// ActorEditor: names of .omf files relative to $game_meshes$, without the
+// extension ("dynamics\weapons\wpn_pm\wpn_pm_hud_animation"). Kept on the
+// skeleton root as the comma separated "xrayMotionRefs" string and written by
+// the skeletal object export; filled by the .ogf/.object import.
+
+global proc string xray_re_refs_climb(string $joint)
+{
+	while (true) {
+		string $parent[] = `listRelatives -parent -type joint $joint`;
+		if (size($parent) == 0)
+			break;
+		$joint = $parent[0];
+	}
+	return $joint;
+}
+
+// root joint of the selected skinned mesh or joint
+global proc string xray_re_refs_root()
+{
+	string $sel[] = `ls -selection`;
+	for ($s in $sel) {
+		if (`nodeType $s` == "joint")
+			return xray_re_refs_climb($s);
+		string $skin = `findRelatedSkinCluster $s`;
+		if ($skin != "") {
+			string $influences[] = `skinCluster -q -influence $skin`;
+			if (size($influences))
+				return xray_re_refs_climb($influences[0]);
+		}
+	}
+	return "";
+}
+
+global proc string[] xray_re_refs_get(string $root)
+{
+	string $refs[];
+	if ($root != "" && `attributeQuery -exists -node $root "xrayMotionRefs"`) {
+		string $value = `getAttr ($root + ".xrayMotionRefs")`;
+		tokenize($value, ",", $refs);
+	}
+	return $refs;
+}
+
+global proc xray_re_refs_set(string $root, string $refs[])
+{
+	if (!`attributeQuery -exists -node $root "xrayMotionRefs"`)
+		addAttr -ln "xrayMotionRefs" -dt "string" $root;
+	setAttr -type "string" ($root + ".xrayMotionRefs") (stringArrayToString($refs, ","));
+}
+
+// "X:/gamedata/meshes/dynamics/wpn/foo.omf" -> "dynamics\wpn\foo"
+global proc string xray_re_refs_name(string $path)
+{
+	string $p = substituteAllString($path, "/", "\\");
+	string $lower = tolower($p);
+	int $pos = 0, $i;
+	for ($i = 1; $i + 7 <= size($lower); $i++)
+		if (substring($lower, $i, $i + 7) == "\\meshes\\")
+			$pos = $i + 8;
+	string $name = $pos > 0 ? substring($p, $pos, size($p)) : basename($p, "");
+	if (endsWith(tolower($name), ".omf"))
+		$name = substring($name, 1, size($name) - 4);
+	if ($pos == 0)
+		warning ("xray_re: " + $path + " is not in a meshes folder, using the file name only");
+	return $name;
+}
+
+global proc xray_re_refs_fill()
+{
+	string $root = xray_re_refs_root();
+	text -e -label ($root == "" ? "Select the skinned mesh or a joint of the skeleton" : ("Skeleton root: " + $root)) xray_re_refs_label;
+	textScrollList -e -removeAll xray_re_refs_list;
+	string $refs[] = xray_re_refs_get($root);
+	for ($r in $refs)
+		textScrollList -e -append $r xray_re_refs_list;
+	columnLayout -e -enable ($root != "") xray_re_refs_buttons;
+}
+
+global proc xray_re_refs_store(string $refs[])
+{
+	string $root = xray_re_refs_root();
+	if ($root == "")
+		return;
+	// the engine keeps at most 48 animation slots (MAX_ANIM_SLOT)
+	if (size($refs) > 48)
+		warning "xray_re: more than 48 motion references";
+	xray_re_refs_set($root, $refs);
+	xray_re_refs_fill();
+}
+
+global proc xray_re_refs_add()
+{
+	string $dir = `optionVar -exists "xrayMotionRefsDir"` ? `optionVar -q "xrayMotionRefsDir"` : "";
+	string $files[] = `fileDialog2 -fileMode 4 -caption "Select game object motions"
+		-fileFilter "Game skeletal motions (*.omf)" -startingDirectory $dir`;
+	if (size($files) == 0)
+		return;
+	optionVar -stringValue "xrayMotionRefsDir" (dirname($files[0]));
+	string $refs[] = xray_re_refs_get(xray_re_refs_root());
+	for ($f in $files) {
+		string $name = xray_re_refs_name($f);
+		if (!stringArrayContains($name, $refs))
+			$refs[size($refs)] = $name;
+	}
+	xray_re_refs_store($refs);
+}
+
+global proc xray_re_refs_remove()
+{
+	string $refs[] = xray_re_refs_get(xray_re_refs_root());
+	string $sel[] = `textScrollList -q -selectItem xray_re_refs_list`;
+	$refs = stringArrayRemove($sel, $refs);
+	xray_re_refs_store($refs);
+}
+
+global proc xray_re_refs_move(int $dir)
+{
+	string $refs[] = xray_re_refs_get(xray_re_refs_root());
+	int $sel[] = `textScrollList -q -selectIndexedItem xray_re_refs_list`;
+	if (size($sel) != 1)
+		return;
+	int $i = $sel[0] - 1, $j = $sel[0] - 1 + $dir;
+	if ($j < 0 || $j >= size($refs))
+		return;
+	string $t = $refs[$i];
+	$refs[$i] = $refs[$j];
+	$refs[$j] = $t;
+	xray_re_refs_store($refs);
+	textScrollList -e -selectIndexedItem ($j + 1) xray_re_refs_list;
+}
+
+global proc xray_re_refs_clear()
+{
+	string $refs[];
+	xray_re_refs_store($refs);
+}
+
+// the SDK's Export/Import: [refs] section of an .ltx, 000000 = name
+global proc xray_re_refs_export()
+{
+	string $files[] = `fileDialog2 -fileMode 0 -caption "Export motion references" -fileFilter "LTX (*.ltx)"`;
+	if (size($files) == 0)
+		return;
+	string $refs[] = xray_re_refs_get(xray_re_refs_root());
+	int $f = `fopen $files[0] "w"`;
+	fprint $f "[refs]\n";
+	int $i;
+	for ($i = 0; $i < size($refs); $i++) {
+		string $key = $i;
+		while (size($key) < 6)
+			$key = "0" + $key;
+		fprint $f ($key + " = " + $refs[$i] + "\n");
+	}
+	fclose $f;
+}
+
+global proc xray_re_refs_import()
+{
+	string $files[] = `fileDialog2 -fileMode 1 -caption "Import motion references" -fileFilter "LTX (*.ltx)"`;
+	if (size($files) == 0)
+		return;
+	string $refs[];
+	int $in_refs = 0;
+	int $f = `fopen $files[0] "r"`;
+	while (!`feof $f`) {
+		string $line = strip(`fgetline $f`);
+		if ($line == "" || startsWith($line, ";"))
+			continue;
+		if (startsWith($line, "[")) {
+			$in_refs = tolower($line) == "[refs]";
+			continue;
+		}
+		if (!$in_refs)
+			continue;
+		string $kv[];
+		tokenize($line, "=", $kv);
+		if (size($kv) >= 2)
+			$refs[size($refs)] = strip($kv[1]);
+	}
+	fclose $f;
+	xray_re_refs_store($refs);
+}
+
+global proc xray_re_motion_refs_window()
+{
+	if (`window -exists xray_re_motion_refs_window`)
+		deleteUI xray_re_motion_refs_window;
+	window -title "X-Ray Motion References" -widthHeight 460 420 xray_re_motion_refs_window;
+	columnLayout -adj true -rowSpacing 4;
+		text -align "left" -label "" xray_re_refs_label;
+		textScrollList -allowMultiSelection true -height 220 xray_re_refs_list;
+		columnLayout -adj true xray_re_refs_buttons;
+			rowLayout -numberOfColumns 4;
+				button -label "Add from files..." -c "xray_re_refs_add";
+				button -label "Remove" -c "xray_re_refs_remove";
+				button -label "Up" -c "xray_re_refs_move -1";
+				button -label "Down" -c "xray_re_refs_move 1";
+			setParent ..;
+			rowLayout -numberOfColumns 3;
+				button -label "Export .ltx..." -c "xray_re_refs_export";
+				button -label "Import .ltx..." -c "xray_re_refs_import";
+				button -label "Clear" -c "xray_re_refs_clear";
+			setParent ..;
+		setParent ..;
+		button -label "Refresh (use the current selection)" -c "xray_re_refs_fill";
+		text -align "left" -label "Written by the skeletal object export (.object), like ActorEditor's Motion reference.";
+	showWindow xray_re_motion_refs_window;
+	xray_re_refs_fill();
+}

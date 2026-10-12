@@ -30,6 +30,11 @@
 #include <maya/MPointArray.h>
 #include <maya/MSelectionList.h>
 #include <maya/MMatrix.h>
+#include <maya/MDGContext.h>
+#include <maya/MDGContextGuard.h>
+#include <maya/MFnAnimCurve.h>
+#include <maya/MFnAttribute.h>
+#include <maya/MQuaternion.h>
 #include "maya_export_tools.h"
 #include "xr_object.h"
 #include "xr_skl_motion.h"
@@ -37,6 +42,13 @@
 #include "xr_utils.h"
 #include "xr_obj_motion.h"
 #include "xr_sdk_version.h"
+#include "xr_math.h"
+#include "xr_ogf_format.h"
+#include "xr_writer.h"
+#include <algorithm>
+#include <climits>
+#include <cmath>
+#include <map>
 
 using namespace xray_re;
 
@@ -257,7 +269,7 @@ static MStatus extract_faces(MFnMesh& mesh_fn, lw_face_vec& faces)
 	MStatus status;
 
 	MItMeshPolygon it(mesh_fn.object());
-	// Не лучшее место для этого кода: lamina обнаруживаются не во всех случаях.
+	// пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ: lamina пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ.
 	if (it.isLamina()) {
 		msg("xray_re: lamina faces found in mesh %s", mesh_fn.name().asChar());
 		MGlobal::displayWarning(MString("xray_re: lamina faces found in mesh ") +
@@ -265,7 +277,7 @@ static MStatus extract_faces(MFnMesh& mesh_fn, lw_face_vec& faces)
 	}
 	// FIXME: it would be nice to support automatic triangulation using getTriangles() etc.
 	int num_polys = mesh_fn.numPolygons(&status);
-	// Иногда одиночные треугольники - не ошибка моделлера. Может быть, стоит это учесть?
+	// пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ - пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ. пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ, пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ?
 	if (num_polys < 2) {
 		msg("xray_re: can't export mesh %s with less than two faces",
 			mesh_fn.name().asChar());
@@ -504,7 +516,7 @@ xr_surface* maya_export_tools::create_surface(const char* surf_name, MFnSet& set
 #endif
 	}
 
-	// Поверхность без какого-либо шейдера (баг Майи или ошибка диза)
+	// пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ-пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ (пїЅпїЅпїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ)
 	if (shader_obj.isNull()) {
 		msg("xray_re: can't find shader node for surface %s", surf_name);
 		MGlobal::displayError(MString("xray_re: can't find shader node for surface ") + surf_name);
@@ -513,11 +525,11 @@ xr_surface* maya_export_tools::create_surface(const char* surf_name, MFnSet& set
 
 	MFnDependencyNode shader_fn(shader_obj);
 	shader_fn.findPlug(base_color_attr).connectedTo(connected_plugs, true, false);
-	// Атрибут color не подключен к текстуре
+	// пїЅпїЅпїЅпїЅпїЅпїЅпїЅ color пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
 	if (connected_plugs.length() == 0) {
 		msg("xray_re: can't find texture node connected to the color attribute on %s", surf_name);
 		MGlobal::displayWarning(MString("xray_re: can't find texture node connected to the color attribute on ") + surf_name);
-		// Выделить объекты с проблемным шейдером
+		// пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
 		MString command("hyperShade -objects ");
 		command += surf_name;
 		MGlobal::executeCommand(command, true, false);
@@ -527,7 +539,7 @@ xr_surface* maya_export_tools::create_surface(const char* surf_name, MFnSet& set
 		MFnDependencyNode dep_fn(connected_plugs[--i].node());
 		if (dep_fn.typeName() == "file") {
 			MString file_path = dep_fn.findPlug("ftn").asString();
-			// Если путь пустой, то это тоже ненормально
+			// пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ, пїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
 			if (file_path.numChars() != 0) {
 				int i, j;
 				if ((i = file_path.rindexW('/')) < 0)
@@ -556,7 +568,7 @@ MStatus maya_export_tools::extract_surfaces(MFnMesh& mesh_fn, xr_surfmap_vec& su
 	MObjectArray shading_groups;
 	MIntArray faces;
 	MStatus status = mesh_fn.getConnectedShaders(0, shading_groups, faces);
-	// Для случая, когда у поверхности пропадает Shading Group (баг Майи)
+	// пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ, пїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ Shading Group (пїЅпїЅпїЅ пїЅпїЅпїЅпїЅ)
 	if (!status || shading_groups.length() == 0) {
 		msg("xray_re: can't get connected shaders for mesh %s", mesh_fn.name().asChar());
 		MGlobal::displayError(MString("xray_re: can't get connected shaders for mesh ") +
@@ -772,6 +784,28 @@ fail:
 	return 0;
 }
 
+// motion references (OMF names, comma separated) kept on the skeleton root,
+// see xray_re_motion_refs.mel
+static std::string get_motion_refs(MFnSkinCluster& skin_fn)
+{
+	MDagPathArray joints;
+	if (!skin_fn.influenceObjects(joints) || joints.length() == 0)
+		return std::string();
+	MDagPath root(joints[0]);
+	for (MDagPath parent(root); parent.pop() && parent.length() > 0 && parent.hasFn(MFn::kJoint);)
+		root = parent;
+	MStatus status;
+	MPlug plug = MFnDependencyNode(root.node()).findPlug("xrayMotionRefs", true, &status);
+	if (!status)
+		return std::string();
+	std::string refs = plug.asString().asChar();
+	if (!refs.empty()) {
+		msg("xray_re: motion references: %s", refs.c_str());
+		MGlobal::displayInfo(MString("xray_re: motion references: ") + refs.c_str());
+	}
+	return refs;
+}
+
 xr_object* maya_export_tools::create_skl_object(MObjectArray &mesh_objs, MObjectArray &skin_objs)
 {
 	MStatus status;
@@ -783,6 +817,7 @@ xr_object* maya_export_tools::create_skl_object(MObjectArray &mesh_objs, MObject
 	MFnSkinCluster skin_fn_0(skin_objs[0]);
 	if (!(status = extract_bones(skin_fn_0, object->bones())))
 		goto fail;
+	object->motion_refs() = get_motion_refs(skin_fn_0);
 
 	for (unsigned i = 0; i < mesh_objs.length(); i++) {
 		MFnMesh mesh_fn(mesh_objs[i]);
@@ -1343,6 +1378,10 @@ void maya_export_tools::set_default_options(void)
 {
 	m_target_sdk = xray_re::SDK_VER_0_4;
 	m_compressed = false;
+	m_force_16bit_t = false;
+	m_omf_float_keys = false;
+	m_omf_from_scene = false;
+	m_omf_motion_name.clear();
 }
 
 MStatus maya_export_tools::parse_options(const MString& options)
@@ -1366,8 +1405,684 @@ MStatus maya_export_tools::parse_options(const MString& options)
 			m_target_sdk = (ver == xray_re::SDK_VER_UNKNOWN ? xray_re::SDK_VER_0_4 : ver);
 		} else if (key_value[0] == "compressed") {
 			m_compressed = (key_value[1] == "true");
+		} else if (key_value[0] == "force_16bit_t") {
+			m_force_16bit_t = (key_value[1] == "true");
+		} else if (key_value[0] == "float_keys") {
+			m_omf_float_keys = (key_value[1] == "true");
+		} else if (key_value[0] == "omf_source") {
+			m_omf_from_scene = (key_value[1] == "scene");
+		} else if (key_value[0] == "omf_motion_name") {
+			m_omf_motion_name = key_value[1].asChar();
 		}
 	}
 
 	return MS::kSuccess;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// OMF export, after CExportSkeleton::ExportMotionKeys()/ExportMotionDefs()
+// of the X-Ray SDK.
+
+// the engine's crc32 (PKZip polynomial), used as a key for shared motion keys
+static uint32_t xray_crc32(const void* data, size_t size)
+{
+	static uint32_t table[256];
+	static bool ready = false;
+	if (!ready) {
+		for (uint32_t i = 0; i != 256; ++i) {
+			uint32_t c = i;
+			for (unsigned k = 0; k != 8; ++k)
+				c = (c & 1) ? (c >> 1) ^ 0xedb88320 : (c >> 1);
+			table[i] = c;
+		}
+		ready = true;
+	}
+	uint32_t crc = 0xffffffff;
+	for (const uint8_t* p = static_cast<const uint8_t*>(data), *end = p + size; p != end; ++p)
+		crc = (crc >> 8) ^ table[(crc & 0xff) ^ *p];
+	return crc ^ 0xffffffff;
+}
+
+// the SDK's motion flags (ESMFlags), as boolean attributes of the anim sources
+static const char* const k_motion_flag_attrs[8] = {
+	"xrayFx", "xrayStopAtEnd", "xrayNoMix", "xraySyncPart",
+	"xrayUseFootSteps", "xrayMoveXForm", "xrayIdle", "xrayUseWeaponBone",
+};
+
+// motion marks: keyable booleans on the skeleton root, see maya_import_tools
+static const char k_mark_prefix[] = "xrayMark_";
+static const size_t k_mark_prefix_len = sizeof(k_mark_prefix) - 1;
+
+static const char* const k_omf_channels[6] = {
+	"translateX", "translateY", "translateZ", "rotateX", "rotateY", "rotateZ"
+};
+
+struct omf_bone {
+	std::string	name;
+	MPlug		plugs[6];
+	MEulerRotation::RotationOrder	order;
+	MQuaternion	axis;		// rotateAxis
+	MQuaternion	orient;		// jointOrient
+};
+
+struct omf_motion {
+	std::string	name;
+	int		order;
+	double		start;		// seconds
+	int		length;		// frames
+	std::vector<MObject>	curves;	// 6 per bone, null - take the plug value
+	bool		from_scene;	// played from the scene, no curves
+	unsigned	flags;
+	std::string	part;		// cycle: bone part name, empty - all bones
+	std::string	start_bone;	// FX
+	float		speed, power, accrue, falloff;
+	// marks: curves of "xrayMark_<name>" in an anim source, or root plugs
+	// sampled per frame for the scene animation
+	std::vector<std::pair<std::string, MObject> >	mark_curves;
+	std::vector<std::pair<std::string, MPlug> >	mark_plugs;
+	std::vector<std::vector<bool> >			mark_samples;
+
+	omf_motion(): order(INT_MAX), start(0), length(0), from_scene(false), flags(0),
+		speed(1.f), power(1.f), accrue(2.f), falloff(2.f) {}
+	bool operator<(const omf_motion& m) const { return order != m.order ? order < m.order : name < m.name; }
+};
+
+struct omf_keys {
+	std::vector<ogf_key_qr>	r;
+	std::vector<ogf_key_qr_float>	rf;	// unquantized, for KPF_FLOAT
+	std::vector<fvector3>	t;
+};
+
+static bool get_attr(const MFnDependencyNode& node_fn, const char* name, MPlug& plug)
+{
+	MStatus status;
+	plug = node_fn.findPlug(name, true, &status);
+	return status == MS::kSuccess;
+}
+
+// local joint transform in X-Ray space: the inverse of maya_import_tools.
+static void make_key(const omf_bone& bone, const double values[6], ogf_key_qr& r, ogf_key_qr_float& rf, fvector3& t)
+{
+	MEulerRotation rot(values[3], values[4], values[5], bone.order);
+	MQuaternion q = bone.axis*rot.asQuaternion()*bone.orient;
+	MEulerRotation e = q.asEulerRotation();
+	e.reorderIt(MEulerRotation::kZXY);
+
+	dmatrix m;
+	m.set_xyz_i(-e.x, -e.y, e.z);
+	dquaternion xq;
+	xq.set(m);
+	const double quant = 32767.0;
+	r.x = int16_t(std::min(std::max(int(xq.x*quant), -32767), 32767));
+	r.y = int16_t(std::min(std::max(int(xq.y*quant), -32767), 32767));
+	r.z = int16_t(std::min(std::max(int(xq.z*quant), -32767), 32767));
+	r.w = int16_t(std::min(std::max(int(xq.w*quant), -32767), 32767));
+	rf.x = float(xq.x);
+	rf.y = float(xq.y);
+	rf.z = float(xq.z);
+	rf.w = float(xq.w);
+
+	t.set(float(MDistance(values[0], MDistance::kCentimeters).asMeters()),
+		float(MDistance(values[1], MDistance::kCentimeters).asMeters()),
+		float(MDistance(-values[2], MDistance::kCentimeters).asMeters()));
+}
+
+// 32 bit float keys (KPF_FLOAT, not in the stock engines), laid out as in such OMFs: a
+// float quaternion per key (one if the bone doesn't turn) and a plain vector
+// per key (one if it doesn't move), each array after its CRC.
+static void write_bone_keys_float(xr_writer& w, const omf_keys& keys)
+{
+	const size_t len = keys.t.size();
+	bool r_present = false, t_present = false;
+	const ogf_key_qr_float& r0 = keys.rf[0];
+	const fvector3& t0 = keys.t[0];
+	for (size_t i = 1; i != len; ++i) {
+		const ogf_key_qr_float& r = keys.rf[i];
+		if (r.x != r0.x || r.y != r0.y || r.z != r0.z || r.w != r0.w)
+			r_present = true;
+		const fvector3& t = keys.t[i];
+		if (t.x != t0.x || t.y != t0.y || t.z != t0.z)
+			t_present = true;
+	}
+	w.w_u8(uint8_t(KPF_FLOAT | (t_present ? KPF_T_PRESENT : 0) | (r_present ? 0 : KPF_R_ABSENT)));
+	if (r_present) {
+		w.w_u32(xray_crc32(&keys.rf[0], len*sizeof(ogf_key_qr_float)));
+		w.w_raw(&keys.rf[0], len*sizeof(ogf_key_qr_float));
+	} else {
+		w.w_raw(&keys.rf[0], sizeof(ogf_key_qr_float));
+	}
+	if (t_present) {
+		w.w_u32(xray_crc32(&keys.t[0], len*sizeof(fvector3)));
+		w.w_raw(&keys.t[0], len*sizeof(fvector3));
+	} else {
+		w.w_fvector3(t0);
+	}
+}
+
+// force_16bit: the SDK's "Force 16bit MotionT" (g_force16BitTransformQuant)
+static void write_bone_keys(xr_writer& w, const omf_keys& keys, bool force_16bit)
+{
+	const size_t len = keys.t.size();
+	fvector3 mean, lo = keys.t[0], hi = keys.t[0];
+	mean.set(0, 0, 0);
+	for (size_t i = 0; i != len; ++i) {
+		const fvector3& t = keys.t[i];
+		mean.add(t);
+		lo.x = std::min(lo.x, t.x); lo.y = std::min(lo.y, t.y); lo.z = std::min(lo.z, t.z);
+		hi.x = std::max(hi.x, t.x); hi.y = std::max(hi.y, t.y); hi.z = std::max(hi.z, t.z);
+	}
+	mean.mul(1.f/len);
+	fvector3 center, size;
+	center.set((hi.x + lo.x)*0.5f, (hi.y + lo.y)*0.5f, (hi.z + lo.z)*0.5f);
+	size.set((hi.x - lo.x)*0.5f, (hi.y - lo.y)*0.5f, (hi.z - lo.z)*0.5f);
+	const bool hq = force_16bit || size.magnitude() > 1.5f;
+	const float limit = hq ? 32767.f : 127.f;
+
+	bool t_present = false, r_present = false;
+	const ogf_key_qr& r0 = keys.r[0];
+	std::vector<int16_t> t16;
+	std::vector<int8_t> t8;
+	for (size_t i = 0; i != len; ++i) {
+		const fvector3& t = keys.t[i];
+		if (std::fabs(t.x - mean.x) > 0.001f || std::fabs(t.y - mean.y) > 0.001f || std::fabs(t.z - mean.z) > 0.001f)
+			t_present = true;
+		const ogf_key_qr& r = keys.r[i];
+		if (r.x != r0.x || r.y != r0.y || r.z != r0.z || r.w != r0.w)
+			r_present = true;
+		const float* v = &t.x;
+		const float* c = &center.x;
+		const float* s = &size.x;
+		for (unsigned k = 0; k != 3; ++k) {
+			int q = s[k] != 0 ? int(limit*(v[k] - c[k])/s[k]) : 0;
+			if (hq)
+				t16.push_back(int16_t(std::min(std::max(q, -32767), 32767)));
+			else
+				t8.push_back(int8_t(std::min(std::max(q, -128), 127)));
+		}
+	}
+	size.mul(1.f/limit);
+
+	w.w_u8(uint8_t((t_present ? KPF_T_PRESENT : 0) | (r_present ? 0 : KPF_R_ABSENT) | (hq ? KPF_T_HQ : 0)));
+	if (r_present) {
+		w.w_u32(xray_crc32(&keys.r[0], len*sizeof(ogf_key_qr)));
+		w.w_raw(&keys.r[0], len*sizeof(ogf_key_qr));
+	} else {
+		w.w_raw(&keys.r[0], sizeof(ogf_key_qr));
+	}
+	if (t_present) {
+		if (hq) {
+			w.w_u32(xray_crc32(&t16[0], t16.size()*sizeof(int16_t)));
+			w.w_raw(&t16[0], t16.size()*sizeof(int16_t));
+		} else {
+			w.w_u32(xray_crc32(&t8[0], t8.size()));
+			w.w_raw(&t8[0], t8.size());
+		}
+		w.w_fvector3(size);
+		w.w_fvector3(center);
+	} else {
+		w.w_fvector3(mean);
+	}
+}
+
+// xray* attributes of an animation source (or of the skeleton root for the
+// scene animation), see maya_import_tools::store_motion_params()
+static void read_motion_params(const MFnDependencyNode& node_fn, omf_motion& motion)
+{
+	MPlug plug;
+	for (unsigned i = 0; i != 8; ++i) {
+		if (get_attr(node_fn, k_motion_flag_attrs[i], plug) && plug.asBool())
+			motion.flags |= 1u << i;
+	}
+	if (get_attr(node_fn, "xrayOtherFlags", plug)) motion.flags |= unsigned(plug.asInt()) & ~0xffu;	if (get_attr(node_fn, "xrayBonePart", plug)) motion.part = plug.asString().asChar();
+	if (get_attr(node_fn, "xrayStartBone", plug)) motion.start_bone = plug.asString().asChar();
+	if (get_attr(node_fn, "xraySpeed", plug)) motion.speed = plug.asFloat();
+	if (get_attr(node_fn, "xrayPower", plug)) motion.power = plug.asFloat();
+	if (get_attr(node_fn, "xrayAccrue", plug)) motion.accrue = plug.asFloat();
+	if (get_attr(node_fn, "xrayFalloff", plug)) motion.falloff = plug.asFloat();
+}
+
+static MDagPath skeleton_root(const MDagPath& joint)
+{
+	MDagPath root(joint);
+	for (MDagPath parent(root); parent.pop() && parent.length() > 0 && parent.hasFn(MFn::kJoint);)
+		root = parent;
+	return root;
+}
+
+// Every Time Editor animation source that animates the skeleton is a motion.
+// A source the import tied to a skeleton (xraySkeleton) counts for that one
+// only: the hands and the weapon may well both have an "idle", and share bone
+// names too. Its motion is named by xrayMotionName, the node name being
+// "<skeleton>:<motion>"; a source made by hand goes by its name without the
+// namespace.
+static bool source_of_other_skeleton(const MFnDependencyNode& source_fn, const MObject& root)
+{
+	MPlug plug;
+	if (!get_attr(source_fn, "xraySkeleton", plug))
+		return false;
+	MPlugArray roots;
+	if (!plug.connectedTo(roots, true, false) || roots.length() == 0)
+		return false;
+	return roots[0].node() != root;
+}
+
+static std::string source_motion_name(const MFnDependencyNode& source_fn)
+{
+	MPlug plug;
+	if (get_attr(source_fn, "xrayMotionName", plug)) {
+		std::string name = plug.asString().asChar();
+		if (!name.empty())
+			return name;
+	}
+	std::string name = source_fn.name().asChar();
+	std::string::size_type colon = name.rfind(':');
+	return colon == std::string::npos ? name : name.substr(colon + 1);
+}
+
+static void collect_anim_sources(const std::vector<omf_bone>& bones, const MObject& root,
+		std::vector<omf_motion>& motions)
+{
+	std::map<std::string, size_t> bone_index;
+	for (size_t i = 0; i != bones.size(); ++i)
+		bone_index[bones[i].name] = i;
+
+	MStringArray sources;
+	MGlobal::executeCommand("ls -type timeEditorAnimSource", sources);
+	for (unsigned s = 0; s != sources.length(); ++s) {
+		MSelectionList list;
+		MObject source_obj;
+		if (!list.add(sources[s]) || !list.getDependNode(0, source_obj))
+			continue;
+		MFnDependencyNode source_fn(source_obj);
+		if (source_of_other_skeleton(source_fn, root))
+			continue;
+		MPlug animation;
+		if (!get_attr(source_fn, "animation", animation))
+			continue;
+		MObject target_attr = source_fn.attribute("target");
+		MObject curve_attr = source_fn.attribute("source");
+
+		omf_motion motion;
+		motion.name = source_motion_name(source_fn);
+		motion.curves.resize(bones.size()*6);
+		const std::string prefix = std::string(source_fn.name().asChar()) + ":";
+		double first = 1e30, last = -1e30;
+		bool used = false;
+		for (unsigned i = 0, n = animation.numElements(); i != n; ++i) {
+			MPlug element = animation.elementByPhysicalIndex(i);
+			std::string target = element.child(target_attr).asString().asChar();
+			if (target.compare(0, prefix.length(), prefix) == 0)
+				target.erase(0, prefix.length());
+			std::string::size_type dot = target.find('.');
+			if (dot == std::string::npos)
+				continue;
+			// a joint whose short name is taken by another skeleton's comes as
+			// a path ("wpn_body1|body|trigger")
+			std::string object = target.substr(0, dot);
+			std::string::size_type bar = object.rfind('|');
+			if (bar != std::string::npos)
+				object.erase(0, bar + 1);
+			std::map<std::string, size_t>::const_iterator bone_it = bone_index.find(object);
+			if (bone_it == bone_index.end())
+				continue;
+			std::string channel = target.substr(dot + 1);
+			MPlugArray curves;
+			element.child(curve_attr).connectedTo(curves, true, false);
+			if (curves.length() == 0 || !curves[0].node().hasFn(MFn::kAnimCurve))
+				continue;
+			if (channel.compare(0, k_mark_prefix_len, k_mark_prefix) == 0) {
+				motion.mark_curves.push_back(std::make_pair(channel.substr(k_mark_prefix_len), curves[0].node()));
+				continue;
+			}
+			unsigned c = 0;
+			while (c != 6 && channel != k_omf_channels[c])
+				++c;
+			if (c == 6)
+				continue;
+			MFnAnimCurve curve_fn(curves[0].node());
+			if (curve_fn.numKeys() == 0)
+				continue;
+			motion.curves[bone_it->second*6 + c] = curves[0].node();
+			first = std::min(first, curve_fn.time(0).as(MTime::kSeconds));
+			last = std::max(last, curve_fn.time(curve_fn.numKeys() - 1).as(MTime::kSeconds));
+			used = true;
+		}
+		if (!used)
+			continue;
+
+		motion.start = first;
+		motion.length = int(std::floor((last - first)*OGF4_MOTION_FPS + 0.5)) + 1;
+		MPlug plug;
+		if (get_attr(source_fn, "xrayOrder", plug)) motion.order = plug.asInt();
+		if (get_attr(source_fn, "xrayLength", plug) && plug.asInt() > 0) motion.length = plug.asInt();
+		read_motion_params(source_fn, motion);
+		motions.push_back(motion);
+	}
+	std::sort(motions.begin(), motions.end());
+}
+
+// "part<TAB>bone bone ..." lines kept on the skeleton root by the OMF import;
+// the default is one part with all bones.
+static void get_bone_parts(const MDagPath& any_joint, const std::vector<omf_bone>& bones,
+		std::vector<std::pair<std::string, std::vector<size_t> > >& parts)
+{
+	parts.clear();
+	MFnDependencyNode root_fn(skeleton_root(any_joint).node());
+	MPlug plug;
+	if (get_attr(root_fn, "xrayBoneParts", plug)) {
+		std::map<std::string, size_t> bone_index;
+		for (size_t i = 0; i != bones.size(); ++i)
+			bone_index[bones[i].name] = i;
+		std::vector<int> seen(bones.size(), 0);
+		bool valid = true;
+		std::string text = plug.asString().asChar();
+		for (std::string::size_type pos = 0; valid && pos < text.length();) {
+			std::string::size_type eol = text.find('\n', pos);
+			std::string line = text.substr(pos, eol == std::string::npos ? std::string::npos : eol - pos);
+			pos = eol == std::string::npos ? text.length() : eol + 1;
+			std::string::size_type tab = line.find('\t');
+			if (tab == std::string::npos) {
+				valid = false;
+				break;
+			}
+			parts.push_back(std::make_pair(line.substr(0, tab), std::vector<size_t>()));
+			for (std::string::size_type b = tab + 1; b < line.length();) {
+				std::string::size_type sp = line.find(' ', b);
+				std::string bone = line.substr(b, sp == std::string::npos ? std::string::npos : sp - b);
+				b = sp == std::string::npos ? line.length() : sp + 1;
+				std::map<std::string, size_t>::const_iterator it = bone_index.find(bone);
+				if (it == bone_index.end()) {
+					valid = false;
+					break;
+				}
+				parts.back().second.push_back(it->second);
+				++seen[it->second];
+			}
+		}
+		for (size_t i = 0; valid && i != seen.size(); ++i)
+			valid = seen[i] == 1;
+		if (valid)
+			return;
+		msg("xray_re: bone parts don't match the skeleton, using one part");
+		MGlobal::displayWarning("xray_re: bone parts don't match the skeleton, using one part");
+		parts.clear();
+	}
+	parts.push_back(std::make_pair(std::string("default"), std::vector<size_t>()));
+	for (size_t i = 0; i != bones.size(); ++i)
+		parts.back().second.push_back(i);
+}
+
+// the SDK's channels go first: Left, Right, Left2, Right2
+static int mark_rank(const std::string& name)
+{
+	static const char* const k_names[4] = { "Left", "Right", "Left2", "Right2" };
+	for (int i = 0; i != 4; ++i) {
+		if (name == k_names[i])
+			return i;
+	}
+	return 4;
+}
+
+static bool mark_less(const xr_motion_marks& a, const xr_motion_marks& b)
+{
+	int ra = mark_rank(a.name()), rb = mark_rank(b.name());
+	return ra != rb ? ra < rb : a.name() < b.name();
+}
+
+static void add_interval(xr_motion_marks& marks, double t0, double t1)
+{
+	motion_mark mark;
+	mark.t0 = float(std::max(t0, 0.0));
+	mark.t1 = float(t1);
+	marks.push_back(mark);
+}
+
+// intervals in seconds from the motion start: on while the value is 1;
+// a mark still on at the end closes at the motion length, like in the SDK
+static void write_marks(xr_writer& w, const omf_motion& motion)
+{
+	const double length = motion.length/double(OGF4_MOTION_FPS);
+	std::vector<xr_motion_marks> marks;
+	for (size_t i = 0; i != motion.mark_curves.size(); ++i) {
+		marks.push_back(xr_motion_marks());
+		marks.back().name() = motion.mark_curves[i].first;
+		MFnAnimCurve curve_fn(motion.mark_curves[i].second);
+		bool on = false;
+		double t0 = 0;
+		for (unsigned k = 0, n = curve_fn.numKeys(); k != n; ++k) {
+			double t = curve_fn.time(k).as(MTime::kSeconds) - motion.start;
+			bool value = curve_fn.value(k) > 0.5;
+			if (value && !on) {
+				on = true;
+				t0 = t;
+			} else if (!value && on) {
+				on = false;
+				add_interval(marks.back(), t0, t);
+			}
+		}
+		if (on)
+			add_interval(marks.back(), t0, length);
+	}
+	for (size_t i = 0; i != motion.mark_plugs.size(); ++i) {
+		marks.push_back(xr_motion_marks());
+		marks.back().name() = motion.mark_plugs[i].first;
+		const std::vector<bool>& samples = motion.mark_samples[i];
+		bool on = false;
+		double t0 = 0;
+		for (size_t k = 0; k != samples.size(); ++k) {
+			double t = k/double(OGF4_MOTION_FPS);
+			if (samples[k] && !on) {
+				on = true;
+				t0 = t;
+			} else if (!samples[k] && on) {
+				on = false;
+				add_interval(marks.back(), t0, t);
+			}
+		}
+		if (on)
+			add_interval(marks.back(), t0, length);
+	}
+	std::stable_sort(marks.begin(), marks.end(), mark_less);
+	w.w_size_u32(marks.size());
+	for (std::vector<xr_motion_marks>::const_iterator it = marks.begin(), end = marks.end(); it != end; ++it)
+		it->save(w);
+}
+
+MStatus maya_export_tools::export_omf(const char* path, bool selection_only)
+{
+	MObjectArray mesh_objs, skin_objs;
+	MStatus status = find_mesh_and_skin(mesh_objs, skin_objs, selection_only);
+	if (!status)
+		return status;
+
+	// all bones of the model: the engine wants the same bone count
+	MFnSkinCluster skin_fn(skin_objs[0]);
+	MDagPathArray joints;
+	skin_fn.influenceObjects(joints, &status);
+	if (joints.length() == 0) {
+		MGlobal::displayError("xray_re: can't find any influence object");
+		return MS::kFailure;
+	}
+	std::vector<omf_bone> bones(joints.length());
+	for (unsigned i = 0; i != joints.length(); ++i) {
+		MFnIkJoint joint_fn(joints[i], &status);
+		if (!status) {
+			MGlobal::displayError("xray_re: can't handle non-joint node " + joints[i].partialPathName());
+			return status;
+		}
+		omf_bone& bone = bones[i];
+		bone.name = joint_fn.name().asChar();
+		for (unsigned c = 0; c != 6; ++c)
+			get_attr(joint_fn, k_omf_channels[c], bone.plugs[c]);
+		// rotateOrder enum matches MEulerRotation (MTransformationMatrix is off by one)
+		MPlug order_plug;
+		bone.order = get_attr(joint_fn, "rotateOrder", order_plug) ?
+				MEulerRotation::RotationOrder(order_plug.asShort()) : MEulerRotation::kXYZ;
+		joint_fn.getOrientation(bone.orient);
+		bone.axis = joint_fn.rotateOrientation(MSpace::kTransform);
+	}
+
+	std::vector<omf_motion> motions;
+	if (!m_omf_from_scene)
+		collect_anim_sources(bones, skeleton_root(joints[0]).node(), motions);
+	if (motions.empty()) {
+		// the scene animation over the playback range (both ends included)
+		// is the only motion; its parameters are kept on the skeleton root
+		omf_motion motion;
+		motion.from_scene = true;
+		if (m_omf_motion_name.empty()) {
+			char name[_MAX_FNAME];
+			_splitpath_s(path, NULL, 0, NULL, 0, name, sizeof(name), NULL, 0);
+			motion.name = name;
+		} else {
+			motion.name = m_omf_motion_name;
+		}
+		motion.start = MAnimControl::minTime().as(MTime::kSeconds);
+		motion.length = int(std::floor((MAnimControl::maxTime().as(MTime::kSeconds) - motion.start)*
+				OGF4_MOTION_FPS + 0.5)) + 1;
+		motion.length = std::max(motion.length, 1);
+		motion.curves.resize(bones.size()*6);
+		MFnDependencyNode root_fn(skeleton_root(joints[0]).node());
+		read_motion_params(root_fn, motion);
+		for (unsigned i = 0, n = root_fn.attributeCount(); i != n; ++i) {
+			MFnAttribute attr_fn(root_fn.attribute(i));
+			std::string name = attr_fn.name().asChar();
+			if (name.compare(0, k_mark_prefix_len, k_mark_prefix) == 0 && name.length() > k_mark_prefix_len) {
+				motion.mark_plugs.push_back(std::make_pair(name.substr(k_mark_prefix_len),
+					root_fn.findPlug(attr_fn.object(), true)));
+			}
+		}
+		motion.mark_samples.resize(motion.mark_plugs.size());
+		motions.push_back(motion);
+		MGlobal::displayInfo(MString("xray_re: exporting the scene animation as ") + motion.name.c_str());
+	}
+
+	std::vector<std::pair<std::string, std::vector<size_t> > > parts;
+	get_bone_parts(joints[0], bones, parts);
+
+	xr_memory_writer* w = new xr_memory_writer;
+
+	// motion keys
+	w->open_chunk(OGF4_S_MOTIONS);
+	w->open_chunk(0);
+	w->w_size_u32(motions.size());
+	w->close_chunk();
+	for (size_t m = 0; m != motions.size(); ++m) {
+		omf_motion& motion = motions[m];
+		std::vector<omf_keys> keys(bones.size());
+		for (size_t b = 0; b != bones.size(); ++b) {
+			keys[b].r.resize(motion.length);
+			keys[b].rf.resize(motion.length);
+			keys[b].t.resize(motion.length);
+		}
+		// exact frame times: a time a tick before a stepped key gives the previous key
+		const double first_frame = std::floor(motion.start*OGF4_MOTION_FPS + 0.5);
+		const MTime saved_time = MAnimControl::currentTime();
+		for (int frame = 0; frame != motion.length; ++frame) {
+			MTime time(first_frame + frame, MTime::kNTSCFrame);
+			// the scene animation is played (IK, constraints, clips...);
+			// plugs without curves of a source are read at that time
+			if (motion.from_scene)
+				MGlobal::viewFrame(time);
+			MDGContext context(motion.from_scene ? MDGContext::fsNormal : MDGContext(time));
+			MDGContextGuard guard(context);
+			for (size_t b = 0; b != bones.size(); ++b) {
+				double values[6];
+				for (unsigned c = 0; c != 6; ++c) {
+					const MObject& curve = motion.curves[b*6 + c];
+					if (!curve.isNull())
+						values[c] = MFnAnimCurve(curve).evaluate(time);
+					else
+						values[c] = bones[b].plugs[c].asDouble();
+				}
+				make_key(bones[b], values, keys[b].r[frame], keys[b].rf[frame], keys[b].t[frame]);
+			}
+			for (size_t i = 0; i != motion.mark_plugs.size(); ++i)
+				motion.mark_samples[i].push_back(motion.mark_plugs[i].second.asBool());
+		}
+		if (motion.from_scene)
+			MGlobal::viewFrame(saved_time);
+		w->open_chunk(uint32_t(m + 1));
+		w->w_sz(motion.name);
+		w->w_u32(uint32_t(motion.length));
+		// key precision is one choice for the whole export: SDK (8 bit, 16 for
+		// long moves), 16 bit (force_16bit_t) or 32 bit floats (float_keys,
+		// which wins if both come)
+		for (size_t b = 0; b != bones.size(); ++b) {
+			if (m_omf_float_keys)
+				write_bone_keys_float(*w, keys[b]);
+			else
+				write_bone_keys(*w, keys[b], m_force_16bit_t);
+		}
+		w->close_chunk();
+	}
+	w->close_chunk();
+
+	// motion definitions
+	w->open_chunk(OGF4_S_SMPARAMS);
+	w->w_u16(OGF4_S_SMPARAMS_VERSION_4);
+	w->w_size_u16(parts.size());
+	for (size_t p = 0; p != parts.size(); ++p) {
+		std::string name(parts[p].first);
+		std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+		w->w_sz(name);
+		w->w_size_u16(parts[p].second.size());
+		for (std::vector<size_t>::const_iterator it = parts[p].second.begin(), end = parts[p].second.end(); it != end; ++it) {
+			w->w_sz(bones[*it].name);
+			w->w_u32(uint32_t(*it));
+		}
+	}
+	w->w_size_u16(motions.size());
+	for (size_t m = 0; m != motions.size(); ++m) {
+		const omf_motion& motion = motions[m];
+		// FX: index of the start bone; cycle: index of the bone part
+		uint16_t bone_or_part = ALL_PARTITIONS;
+		if (motion.flags & xr_skl_motion::SMF_FX) {
+			bone_or_part = 0;
+			for (size_t b = 0; b != bones.size(); ++b) {
+				if (bones[b].name == motion.start_bone) {
+					bone_or_part = uint16_t(b);
+					break;
+				}
+			}
+			if (!motion.start_bone.empty() && bones[bone_or_part].name != motion.start_bone) {
+				msg("xray_re: no start bone %s of motion %s", motion.start_bone.c_str(), motion.name.c_str());
+				MGlobal::displayWarning(MString("xray_re: no start bone ") + motion.start_bone.c_str() +
+					" of motion " + motion.name.c_str() + ", using " + bones[0].name.c_str());
+			}
+		} else if (!motion.part.empty()) {
+			for (size_t p = 0; p != parts.size(); ++p) {
+				if (_stricmp(parts[p].first.c_str(), motion.part.c_str()) == 0) {
+					bone_or_part = uint16_t(p);
+					break;
+				}
+			}
+			if (bone_or_part == ALL_PARTITIONS) {
+				msg("xray_re: no bone part %s of motion %s, using all bones", motion.part.c_str(), motion.name.c_str());
+				MGlobal::displayWarning(MString("xray_re: no bone part ") + motion.part.c_str() +
+					" of motion " + motion.name.c_str() + ", using all bones");
+			}
+		}
+		w->w_sz(motion.name);
+		w->w_u32(motion.flags);
+		w->w_u16(bone_or_part);
+		w->w_u16(uint16_t(m));
+		w->w_float(motion.speed);
+		w->w_float(motion.power);
+		w->w_float(motion.accrue);
+		w->w_float(motion.falloff);
+		write_marks(*w, motion);
+	}
+	w->close_chunk();
+
+	status = w->save_to(path) ? MS::kSuccess : MS::kFailure;
+	delete w;
+	if (status) {
+		msg("xray_re: exported %u motions for %u bones", unsigned(motions.size()), unsigned(bones.size()));
+		MGlobal::displayInfo(MString("xray_re: exported ") + unsigned(motions.size()) + " motions for " +
+			unsigned(bones.size()) + " bones");
+	} else {
+		MGlobal::displayError(MString("xray_re: can't write ") + path);
+	}
+	return status;
 }

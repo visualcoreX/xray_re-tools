@@ -1,0 +1,594 @@
+// Options of the "X-Ray game skeletal motions" (.omf) export.
+//
+// Motion parameters are per motion, so they live on the Time Editor animation
+// sources (xray* attributes, see maya_import_tools::store_motion_params) and
+// are edited here directly: changes go to the scene right away.
+
+global string $gXrayOmfFlagAttrs[] = {
+	"xrayStopAtEnd", "xrayNoMix", "xraySyncPart", "xrayUseFootSteps",
+	"xrayMoveXForm", "xrayIdle", "xrayUseWeaponBone"
+};
+global string $gXrayOmfFlagLabels[] = {
+	"Stop at end", "No mix", "Sync part", "UseFootSteps",
+	"Move XForm", "Idle", "UseWeaponBone"
+};
+
+// add the attributes with the SDK defaults to a source that has none
+global proc xray_re_omf_ensure_attrs(string $src)
+{
+	string $bools[] = { "xrayFx", "xrayStopAtEnd", "xrayNoMix", "xraySyncPart",
+		"xrayUseFootSteps", "xrayMoveXForm", "xrayIdle", "xrayUseWeaponBone" };
+	for ($a in $bools)
+		if (!`attributeQuery -exists -node $src $a`)
+			addAttr -ln $a -at bool $src;
+	string $floats[] = { "xraySpeed", "xrayAccrue", "xrayFalloff", "xrayPower" };
+	float $defaults[] = { 1.0, 2.0, 2.0, 1.0 };
+	int $i;
+	for ($i = 0; $i < size($floats); $i++)
+		if (!`attributeQuery -exists -node $src $floats[$i]`) {
+			addAttr -ln $floats[$i] -at "float" -dv $defaults[$i] $src;
+			setAttr ($src + "." + $floats[$i]) $defaults[$i];
+		}
+	string $strings[] = { "xrayBonePart", "xrayStartBone" };
+	for ($a in $strings)
+		if (!`attributeQuery -exists -node $src $a`)
+			addAttr -ln $a -dt "string" $src;
+}
+
+// animation sources, in the order of the imported file
+global proc string[] xray_re_omf_sources()
+{
+	string $keyed[];
+	string $all[] = `ls -type timeEditorAnimSource`;
+	for ($src in $all) {
+		string $order = "9999999";
+		if (`attributeQuery -exists -node $src "xrayOrder"`) {
+			$order = `getAttr ($src + ".xrayOrder")`;
+			while (size($order) < 7)
+				$order = "0" + $order;
+		}
+		$keyed[size($keyed)] = $order + "|" + $src;
+	}
+	string $result[];
+	string $sorted[] = sort($keyed);
+	for ($k in $sorted) {
+		string $parts[];
+		tokenize($k, "|", $parts);
+		$result[size($result)] = $parts[1];
+	}
+	return $result;
+}
+
+global proc string xray_re_omf_climb(string $joint)
+{
+	while (true) {
+		string $parent[] = `listRelatives -parent -type joint $joint`;
+		if (size($parent) == 0)
+			break;
+		$joint = $parent[0];
+	}
+	return $joint;
+}
+
+// root joint of the skeleton animated by a source (or of a joint)
+global proc string xray_re_omf_root(string $src)
+{
+	if (`nodeType $src` == "joint")
+		return xray_re_omf_climb($src);
+	string $targets[] = `timeEditorAnimSource -q -targets $src`;
+	for ($t in $targets) {
+		if (startsWith($t, $src + ":"))
+			$t = substring($t, size($src) + 2, size($t));
+		string $parts[];
+		tokenize($t, ".", $parts);
+		if (`objExists $parts[0]` && `nodeType $parts[0]` == "joint")
+			return xray_re_omf_climb($parts[0]);
+	}
+	return "";
+}
+
+// root joint of the selected skinned mesh (or joint): the scene animation
+// keeps its parameters there
+global proc string xray_re_omf_scene_root()
+{
+	string $sel[] = `ls -selection`;
+	for ($s in $sel) {
+		if (`nodeType $s` == "joint")
+			return xray_re_omf_climb($s);
+		string $skin = `findRelatedSkinCluster $s`;
+		if ($skin != "") {
+			string $influences[] = `skinCluster -q -influence $skin`;
+			if (size($influences))
+				return xray_re_omf_climb($influences[0]);
+		}
+	}
+	// nothing suitable selected (e.g. Export All): the first skinned skeleton
+	string $skins[] = `ls -type skinCluster`;
+	for ($skin in $skins) {
+		string $influences[] = `skinCluster -q -influence $skin`;
+		if (size($influences))
+			return xray_re_omf_climb($influences[0]);
+	}
+	return "";
+}
+
+// "scene name" of the Motion name field's right-click menu
+global proc string xray_re_omf_scene_name()
+{
+	string $scene = `file -q -sceneName -shortName`;
+	if ($scene == "") {
+		warning "xray_re: the scene is not saved yet, it has no name";
+		return "";
+	}
+	return basenameEx($scene);
+}
+
+global proc xray_re_omf_name_menu(string $field)
+{
+	popupMenu -button 3 -parent $field;
+		menuItem -label "scene name" -c ("textFieldGrp -e -text (xray_re_omf_scene_name()) " + $field);
+}
+
+global proc int xray_re_omf_scene_mode()
+{
+	return `radioButtonGrp -q -select xray_re_omf_source` == 2;
+}
+
+// nodes the parameter controls edit: the picked sources, or the skeleton root
+global proc string[] xray_re_omf_selected()
+{
+	string $sel[];
+	if (xray_re_omf_scene_mode()) {
+		string $root = xray_re_omf_scene_root();
+		if ($root != "")
+			$sel[0] = $root;
+	} else {
+		$sel = `textScrollList -q -selectItem xray_re_omf_list`;
+	}
+	for ($node in $sel)
+		xray_re_omf_ensure_attrs($node);
+	return $sel;
+}
+
+global proc xray_re_omf_on_source()
+{
+	int $scene = xray_re_omf_scene_mode();
+	textScrollList -e -enable (!$scene) xray_re_omf_list;
+	if (`textFieldGrp -exists xray_re_omf_name`)
+		textFieldGrp -e -enable $scene xray_re_omf_name;
+	string $root = xray_re_omf_scene_root();
+	text -e -label ($scene ? ("Parameters of the scene animation (kept on " +
+		($root == "" ? "the skeleton root; select the skinned mesh" : $root) + "):") :
+		"Parameters of the selected motions:") xray_re_omf_params_label;
+	xray_re_omf_on_select();
+}
+
+global proc xray_re_omf_set_bool(string $attr, int $value)
+{
+	string $sel[] = xray_re_omf_selected();
+	for ($src in $sel)
+		setAttr ($src + "." + $attr) $value;
+	if ($attr == "xrayFx")
+		xray_re_omf_update_mode($value);
+}
+
+global proc xray_re_omf_set_float(string $attr, float $value)
+{
+	string $sel[] = xray_re_omf_selected();
+	for ($src in $sel)
+		setAttr ($src + "." + $attr) $value;
+}
+
+global proc xray_re_omf_set_string(string $attr, string $value)
+{
+	if ($value == "--all bones--")
+		$value = "";
+	string $sel[] = xray_re_omf_selected();
+	for ($src in $sel)
+		setAttr -type "string" ($src + "." + $attr) $value;
+}
+
+// Motion marks are keyable booleans "xrayMark_<name>" on the skeleton root:
+// a stepped key of 1 starts an interval, 0 ends it. An anim source keeps a
+// curve per mark; the scene animation uses the root attributes themselves.
+
+// index of the source's animation element driving root.xrayMark_<name>, -1 if none
+global proc int xray_re_omf_mark_element(string $src, string $name)
+{
+	int $indices[] = `getAttr -multiIndices ($src + ".animation")`;
+	for ($i in $indices) {
+		string $target = `getAttr ($src + ".animation[" + $i + "].target")`;
+		if (endsWith($target, ".xrayMark_" + $name))
+			return $i;
+	}
+	return -1;
+}
+
+// mark curve of a source, or the anim curve keyed on a root attribute
+global proc string xray_re_omf_mark_curve(string $node, string $name)
+{
+	string $curves[];
+	if (`nodeType $node` == "timeEditorAnimSource") {
+		int $i = xray_re_omf_mark_element($node, $name);
+		if ($i < 0)
+			return "";
+		$curves = `listConnections -source true -destination false ($node + ".animation[" + $i + "].source")`;
+	} else if (`attributeQuery -exists -node $node ("xrayMark_" + $name)`) {
+		$curves = `listConnections -source true -destination false -type animCurve ($node + ".xrayMark_" + $name)`;
+	}
+	return size($curves) ? $curves[0] : "";
+}
+
+global proc string[] xray_re_omf_mark_names(string $node)
+{
+	string $names[];
+	if (`nodeType $node` == "timeEditorAnimSource") {
+		int $indices[] = `getAttr -multiIndices ($node + ".animation")`;
+		for ($i in $indices) {
+			string $target = `getAttr ($node + ".animation[" + $i + "].target")`;
+			int $pos = `gmatch $target "*.xrayMark_*"`;
+			if ($pos) {
+				string $parts[];
+				tokenize($target, ".", $parts);
+				$names[size($names)] = substring($parts[size($parts) - 1], 10, size($parts[size($parts) - 1]));
+			}
+		}
+	} else {
+		string $attrs[] = `listAttr -userDefined -string "xrayMark_*" $node`;
+		for ($a in $attrs)
+			$names[size($names)] = substring($a, 10, size($a));
+	}
+	return $names;
+}
+
+// "2.00-5.70 s, 8.00-9.17 s" from the keys of a mark curve
+global proc string xray_re_omf_mark_text(string $curve, float $start)
+{
+	if ($curve == "")
+		return "no keys";
+	float $times[] = `keyframe -q -timeChange $curve`;
+	float $values[] = `keyframe -q -valueChange $curve`;
+	string $text = "";
+	int $on = 0;
+	float $t0 = 0;
+	float $fps = `currentTimeUnitToFPS`;
+	int $k;
+	for ($k = 0; $k < size($times); $k++) {
+		float $t = ($times[$k] - $start)/$fps;
+		if ($values[$k] > 0.5 && !$on) {
+			$on = 1;
+			$t0 = $t;
+		} else if ($values[$k] <= 0.5 && $on) {
+			$on = 0;
+			$text += ($text == "" ? "" : ", ") + xray_re_omf_fmt($t0) + "-" + xray_re_omf_fmt($t);
+		}
+	}
+	if ($on)
+		$text += ($text == "" ? "" : ", ") + xray_re_omf_fmt($t0) + "-end";
+	return $text == "" ? "none" : $text + " s";
+}
+
+// seconds with 2 decimals
+global proc string xray_re_omf_fmt(float $v)
+{
+	float $rounded = ((int)($v*100 + ($v < 0 ? -0.5 : 0.5)))/100.0;
+	string $s = $rounded;
+	return $s;
+}
+
+global proc xray_re_omf_add_marks(int $four)
+{
+	string $nodes[] = xray_re_omf_selected();
+	xray_re_omf_add_marks_to($nodes, $four);
+	xray_re_omf_on_select();
+}
+
+global proc xray_re_omf_remove_marks(int $four)
+{
+	string $nodes[] = xray_re_omf_selected();
+	xray_re_omf_remove_marks_from($nodes, $four);
+	xray_re_omf_on_select();
+}
+
+// like the SDK's Add buttons: Left/Right, or Left/Right/Left2/Right2
+global proc xray_re_omf_add_marks_to(string $nodes[], int $four)
+{
+	string $names[] = { "Left", "Right" };
+	if ($four)
+		$names = { "Left", "Right", "Left2", "Right2" };
+	for ($node in $nodes) {
+		string $root = xray_re_omf_root($node);
+		if ($root == "")
+			continue;
+		for ($name in $names) {
+			string $attr = "xrayMark_" + $name;
+			if (!`attributeQuery -exists -node $root $attr`)
+				addAttr -ln $attr -nn ("X-Ray mark " + $name) -at bool -keyable true $root;
+			if (`nodeType $node` != "timeEditorAnimSource" || xray_re_omf_mark_element($node, $name) >= 0)
+				continue;
+			// an empty mark channel in the source: one key of 0 at its start
+			float $range[] = `timeEditorAnimSource -q -ct $node`;
+			string $curve = `createNode animCurveTU -name ($node + "_" + $attr)`;
+			setKeyframe -time $range[0] -value 0 $curve;
+			keyTangent -outTangentType step $curve;
+			int $indices[] = `getAttr -multiIndices ($node + ".animation")`;
+			int $i = size($indices) ? $indices[size($indices) - 1] + 1 : 0;
+			setAttr -type "string" ($node + ".animation[" + $i + "].target") ($root + "." + $attr);
+			connectAttr ($curve + ".output") ($node + ".animation[" + $i + "].source");
+		}
+	}
+}
+
+// like the SDK's Remove buttons: all marks, or Left2/Right2 only
+global proc xray_re_omf_remove_marks_from(string $nodes[], int $four)
+{
+	string $names[] = { "Left", "Right", "Left2", "Right2" };
+	if ($four)
+		$names = { "Left2", "Right2" };
+	for ($node in $nodes) {
+		for ($name in $names) {
+			if (`nodeType $node` == "timeEditorAnimSource") {
+				int $i = xray_re_omf_mark_element($node, $name);
+				if ($i < 0)
+					continue;
+				string $curve = xray_re_omf_mark_curve($node, $name);
+				removeMultiInstance -break true ($node + ".animation[" + $i + "]");
+				if ($curve != "")
+					delete $curve;
+			} else if (`attributeQuery -exists -node $node ("xrayMark_" + $name)`) {
+				// the attribute stays for the sources that use it, only the keys go
+				cutKey -clear -attribute ("xrayMark_" + $name) $node;
+				setAttr ($node + ".xrayMark_" + $name) 0;
+			}
+		}
+	}
+}
+
+// select the mark curves and open the Graph Editor to set the intervals
+global proc xray_re_omf_edit_marks()
+{
+	string $curves[];
+	string $nodes[] = xray_re_omf_selected();
+	for ($node in $nodes) {
+		string $names[] = xray_re_omf_mark_names($node);
+		for ($name in $names) {
+			string $curve = xray_re_omf_mark_curve($node, $name);
+			if ($curve == "" && `nodeType $node` != "timeEditorAnimSource") {
+				// scene animation: start keying the attribute
+				setKeyframe -attribute ("xrayMark_" + $name) -value 0 -outTangentType step $node;
+				$curve = xray_re_omf_mark_curve($node, $name);
+			}
+			if ($curve != "")
+				$curves[size($curves)] = $curve;
+		}
+	}
+	if (size($curves) == 0) {
+		warning "xray_re: no marks to edit, add them first";
+		return;
+	}
+	select -replace $curves;
+	GraphEditor;
+}
+
+global proc xray_re_omf_update_mode(int $fx)
+{
+	frameLayout -e -enable (!$fx) xray_re_omf_cycle;
+	frameLayout -e -enable $fx xray_re_omf_fx;
+}
+
+global proc xray_re_omf_fill_menu(string $menu, string $items[], string $current)
+{
+	string $old[] = `optionMenu -q -itemListLong $menu`;
+	if (size($old))
+		deleteUI $old;
+	for ($item in $items)
+		menuItem -parent $menu -label $item;
+	if (size($items)) {
+		int $i;
+		optionMenu -e -select 1 $menu;
+		for ($i = 0; $i < size($items); $i++)
+			if ($items[$i] == $current)
+				optionMenu -e -select ($i + 1) $menu;
+	}
+}
+
+// show the parameters of the first selected motion
+global proc xray_re_omf_on_select()
+{
+	global string $gXrayOmfFlagAttrs[];
+	string $sel[] = xray_re_omf_selected();
+	int $has = size($sel) > 0;
+	columnLayout -e -enable $has xray_re_omf_params;
+	if (!$has)
+		return;
+	string $src = $sel[0];
+
+	int $fx = `getAttr ($src + ".xrayFx")`;
+	checkBox -e -value $fx xray_re_omf_fx_box;
+	xray_re_omf_update_mode($fx);
+	floatFieldGrp -e -value1 `getAttr ($src + ".xraySpeed")` xray_re_omf_speed;
+	floatFieldGrp -e -value1 `getAttr ($src + ".xrayAccrue")` xray_re_omf_accrue;
+	floatFieldGrp -e -value1 `getAttr ($src + ".xrayFalloff")` xray_re_omf_falloff;
+	floatFieldGrp -e -value1 `getAttr ($src + ".xrayPower")` xray_re_omf_power;
+	int $i;
+	for ($i = 0; $i < size($gXrayOmfFlagAttrs); $i++)
+		checkBox -e -value `getAttr ($src + "." + $gXrayOmfFlagAttrs[$i])` ("xray_re_omf_flag" + $i);
+
+	// bone parts and bones of the skeleton
+	string $root = xray_re_omf_root($src);
+	string $parts[] = { "--all bones--" };
+	string $bones[];
+	if ($root != "") {
+		if (`attributeQuery -exists -node $root "xrayBoneParts"`) {
+			string $lines[];
+			string $parts_text = `getAttr ($root + ".xrayBoneParts")`;
+			tokenize($parts_text, "\n", $lines);
+			for ($line in $lines) {
+				string $name[];
+				tokenize($line, "\t", $name);
+				$parts[size($parts)] = $name[0];
+			}
+		}
+		$bones = `listRelatives -allDescendents -type joint $root`;
+		$bones[size($bones)] = $root;
+		$bones = sort($bones);
+	}
+	string $part = `getAttr ($src + ".xrayBonePart")`;
+	xray_re_omf_fill_menu("xray_re_omf_part", $parts, $part == "" ? "--all bones--" : $part);
+	xray_re_omf_fill_menu("xray_re_omf_start_bone", $bones, `getAttr ($src + ".xrayStartBone")`);
+
+	// marks with their intervals, from the motion start
+	float $start = `playbackOptions -q -min`;
+	if (`nodeType $src` == "timeEditorAnimSource") {
+		float $range[] = `timeEditorAnimSource -q -ct $src`;
+		$start = $range[0];
+	}
+	string $marks = "";
+	string $names[] = xray_re_omf_mark_names($src);
+	for ($name in $names)
+		$marks += ($marks == "" ? "" : "\n") + $name + ": " + xray_re_omf_mark_text(xray_re_omf_mark_curve($src, $name), $start);
+	text -e -label ($marks == "" ? "no marks" : $marks) xray_re_omf_marks;
+}
+
+// the motion list, the parameters and the marks of the selected motions;
+// shared by the OMF export options and the "X-Ray Motions" window
+global proc xray_re_omf_motions_ui()
+{
+	global string $gXrayOmfFlagAttrs[];
+	global string $gXrayOmfFlagLabels[];
+	int $i;
+
+	radioButtonGrp -numberOfRadioButtons 2 -label "Motions"
+		-labelArray2 "Time Editor motions" "Scene animation (playback range)"
+		-columnWidth3 140 140 220
+		-select 1 -cc "xray_re_omf_on_source" xray_re_omf_source;
+
+	text -align "left" -label "Time Editor animation sources:";
+	textScrollList -allowMultiSelection true -height 160
+		-selectCommand "xray_re_omf_on_select" xray_re_omf_list;
+	string $sources[] = xray_re_omf_sources();
+	for ($src in $sources)
+		textScrollList -e -append $src xray_re_omf_list;
+
+	text -align "left" -label "Parameters of the selected motions:" xray_re_omf_params_label;
+	text -align "left" -label "(changes go to the scene at once)";
+	columnLayout -adj true -enable false xray_re_omf_params;
+		floatFieldGrp -label "Speed" -precision 2 -cc "xray_re_omf_set_float xraySpeed #1" xray_re_omf_speed;
+		floatFieldGrp -label "Accrue" -precision 2 -cc "xray_re_omf_set_float xrayAccrue #1" xray_re_omf_accrue;
+		floatFieldGrp -label "Falloff" -precision 2 -cc "xray_re_omf_set_float xrayFalloff #1" xray_re_omf_falloff;
+		checkBox -label "Type FX" -cc "xray_re_omf_set_bool xrayFx #1" xray_re_omf_fx_box;
+
+		frameLayout -label "Cycle" -collapsable false xray_re_omf_cycle;
+			columnLayout -adj true;
+			optionMenu -label "Bone part" -cc "xray_re_omf_set_string xrayBonePart \"#1\"" xray_re_omf_part;
+			for ($i = 0; $i < size($gXrayOmfFlagAttrs); $i++)
+				checkBox -label $gXrayOmfFlagLabels[$i]
+					-cc ("xray_re_omf_set_bool " + $gXrayOmfFlagAttrs[$i] + " #1") ("xray_re_omf_flag" + $i);
+			setParent ..;
+		setParent ..;
+
+		frameLayout -label "FX" -collapsable false -enable false xray_re_omf_fx;
+			columnLayout -adj true;
+			optionMenu -label "Start bone" -cc "xray_re_omf_set_string xrayStartBone \"#1\"" xray_re_omf_start_bone;
+			floatFieldGrp -label "Power" -precision 2 -cc "xray_re_omf_set_float xrayPower #1" xray_re_omf_power;
+			setParent ..;
+		setParent ..;
+
+		frameLayout -label "Marks" -collapsable false;
+			columnLayout -adj true;
+			text -align "left" -label "no marks" xray_re_omf_marks;
+			rowLayout -numberOfColumns 4;
+				button -label "Add Left/Right" -c "xray_re_omf_add_marks 0";
+				button -label "Remove all" -c "xray_re_omf_remove_marks 0";
+				button -label "Add Left2/Right2" -c "xray_re_omf_add_marks 1";
+				button -label "Remove 2" -c "xray_re_omf_remove_marks 1";
+			setParent ..;
+			button -label "Edit keys in Graph Editor (1 - mark on, 0 - off)" -c "xray_re_omf_edit_marks";
+			setParent ..;
+		setParent ..;
+	setParent ..;
+}
+
+// "xrUtils > X-Ray Motions": the same panel outside of the export
+global proc xray_re_motions_window()
+{
+	if (`window -exists xray_re_motions_window`)
+		deleteUI xray_re_motions_window;
+	window -title "X-Ray Motions" -widthHeight 470 760 xray_re_motions_window;
+	scrollLayout -childResizable true;
+	columnLayout -adj true -rowSpacing 4;
+	xray_re_omf_motions_ui();
+	button -label "Refresh" -c "xray_re_motions_window";
+	showWindow xray_re_motions_window;
+	xray_re_omf_on_source();
+}
+
+global proc int xray_re_omf_translator_options(string $parent, string $action, string $options, string $callback)
+{
+	global string $gXrayOmfFlagAttrs[];
+	global string $gXrayOmfFlagLabels[];
+	int $i;
+
+	if ($action == "post")
+	{
+		setParent $parent;
+		columnLayout -adj true -rowSpacing 4;
+
+		// key precision of the whole export: like the SDK (8 bit translation,
+		// 16 for bones moving over 1.5 m), the SDK's "Force 16bit MotionT", or
+		// 32 bit floats (flag 0x08, stock engines can't read them)
+		radioButtonGrp -numberOfRadioButtons 3 -label "Keys"
+			-labelArray3 "SDK (8/16 bit)" "16 bit" "32-bit float"
+			-columnWidth4 140 110 70 100 -select 1
+			-annotation "SDK: 8 bit translation, 16 for long moves; 16 bit: Force 16bit MotionT; 32-bit float: flag 0x08, not readable by the stock engines"
+			xray_re_omf_keys;
+
+		textFieldGrp -label "Motion name" -placeholderText "file name (right click: scene name)" -enable false xray_re_omf_name;
+		xray_re_omf_name_menu("xray_re_omf_name");
+
+		separator -height 8;
+		xray_re_omf_motions_ui();
+
+		string $params[];
+		tokenize($options, ";", $params);
+		for ($i = 0; $i < size($params); $i++)
+		{
+			string $kv[];
+			tokenize($params[$i], "=", $kv);
+			if (size($kv) < 2)
+				continue;
+			// float_keys wins over force_16bit_t, as in the export
+			if ($kv[0] == "force_16bit_t" && $kv[1] == "true" &&
+					`radioButtonGrp -q -select xray_re_omf_keys` != 3)
+				radioButtonGrp -edit -select 2 xray_re_omf_keys;
+			else if ($kv[0] == "float_keys" && $kv[1] == "true")
+				radioButtonGrp -edit -select 3 xray_re_omf_keys;
+			else if ($kv[0] == "omf_source")
+				radioButtonGrp -e -select ($kv[1] == "scene" ? 2 : 1) xray_re_omf_source;
+			else if ($kv[0] == "omf_motion_name")
+				textFieldGrp -e -text $kv[1] xray_re_omf_name;
+		}
+		xray_re_omf_on_source();
+	}
+	else if ($action == "query")
+	{
+		$options = "";
+		int $keys = `radioButtonGrp -q -select xray_re_omf_keys`;
+		$options += ($keys == 2) ? "force_16bit_t=true;" : "force_16bit_t=false;";
+		$options += ($keys == 3) ? "float_keys=true;" : "float_keys=false;";
+
+		if (xray_re_omf_scene_mode())
+			$options += "omf_source=scene;";
+		else
+			$options += "omf_source=sources;";
+		// the name can't hold the option separators
+		string $name = `textFieldGrp -q -text xray_re_omf_name`;
+		$name = substituteAllString(substituteAllString(substituteAllString($name, ";", "_"), "=", "_"), "\"", "_");
+		if ($name != "")
+			$options += "omf_motion_name=" + $name + ";";
+
+		eval($callback + " \"" + $options + "\"");
+	}
+
+	return 1;
+}
