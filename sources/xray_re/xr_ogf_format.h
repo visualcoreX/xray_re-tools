@@ -250,11 +250,18 @@ enum ogf4_key_presence_flag {
 	KPF_T_PRESENT	= 0x01,
 	KPF_R_ABSENT	= 0x02,
 	KPF_T_HQ	= 0x04,		// 3456+
+	// 32 bit float keys (modded engines only): rotations are ogf_key_qr_float,
+	// translations plain fvector3 without t_size/t_init; CRCs as usual
+	KPF_FLOAT	= 0x08,
 };
 
 struct ogf_key_qr {
 	int16_t				x, y, z, w;
 	template<typename T> void	dequantize(_quaternion<T>& q) const;
+};
+
+struct ogf_key_qr_float {
+	float				x, y, z, w;
 };
 
 template<typename T> inline void ogf_key_qr::dequantize(_quaternion<T>& q) const

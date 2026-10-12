@@ -7,6 +7,7 @@
 #include <vector>
 #include <string>
 #include "xr_ogf_format.h"
+#include "xr_quaternion.h"
 #include "xr_geom_buf.h"
 #include "xr_object.h"
 
@@ -53,7 +54,9 @@ public:
 
 	struct bone_motion_io: public xr_bone_motion {
 		void	insert_key(float time, const ogf_key_qr* value);
+		void	insert_key(float time, const ogf_key_qr_float* value);
 		void	insert_key(float time, const fvector3* value);
+		void	insert_rotation(float time, const dquaternion& q);
 	};
 
 protected:

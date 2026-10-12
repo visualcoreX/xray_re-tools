@@ -100,6 +100,7 @@ public:
 	uint32_t		flags() const;
 	const std::string&	userdata() const;
 	const std::string&	motion_refs() const;
+	std::string&		motion_refs();
 	xr_surface_vec&		surfaces();
 	const xr_surface_vec&	surfaces() const;
 	xr_mesh_vec&		meshes();
@@ -138,7 +139,7 @@ protected:
 	const xr_surface_factory*
 				m_surface_factory;
 #if defined(_MSC_VER) && _MSC_VER < 1939
-	// в говностудии 2022 это не работает
+	// пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ 2022 пїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
 	stdext::hash_map<xr_raw_surface, xr_surface*>
 #else
 	std::map<xr_raw_surface, xr_surface*>
@@ -152,6 +153,7 @@ inline uint32_t& xr_object::flags() { return m_flags; }
 inline uint32_t xr_object::flags() const { return m_flags; }
 inline const std::string& xr_object::userdata() const { return m_userdata; }
 inline const std::string& xr_object::motion_refs() const { return m_motion_refs; }
+inline std::string& xr_object::motion_refs() { return m_motion_refs; }
 inline xr_surface_vec& xr_object::surfaces() { return m_surfaces; }
 inline const xr_surface_vec& xr_object::surfaces() const { return m_surfaces; }
 inline xr_mesh_vec& xr_object::meshes() { return m_meshes; }

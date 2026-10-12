@@ -31,6 +31,7 @@ enum eobj_chunk_id {
 	EOBJ_CHUNK_PARTITIONS_1	= 0x0923,
 	EOBJ_CHUNK_MOTION_REFS	= 0x0924,
 	EOBJ_CHUNK_LOD_REF	= 0x0925,	// LOD\Reference
+	EOBJ_CHUNK_MOTION_REFS_1	= 0x0926,	// count + names (newer SDK)
 };
 
 enum eobj_clip_chunk_id {

@@ -97,7 +97,7 @@ void xr_motion_marks::save(xr_writer& w) const
 xr_skl_motion::xr_skl_motion(): xr_motion(MT_SKELETON),
 	m_bone_or_part(ALL_PARTITIONS),
 	m_speed(1.f), m_accrue(2.f), m_falloff(2.f), m_power(1.f),
-	m_flags(0) {}
+	m_flags(0), m_float_keys(false) {}
 
 xr_skl_motion::~xr_skl_motion()
 {

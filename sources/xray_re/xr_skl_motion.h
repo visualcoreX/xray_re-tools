@@ -55,6 +55,9 @@ public:
 	void		load(xr_reader& r);
 	void		save(xr_writer& w) const;
 
+	const std::string&	name() const { return m_name; }
+	std::string&		name() { return m_name; }
+
 protected:
 	std::string	m_name;
 };
@@ -80,6 +83,16 @@ public:
 
 		int		marks_size();
 
+	uint16_t	bone_or_part() const { return m_bone_or_part; }
+	float		speed() const { return m_speed; }
+	float		accrue() const { return m_accrue; }
+	float		falloff() const { return m_falloff; }
+	float		power() const { return m_power; }
+	unsigned	motion_flags() const { return m_flags; }
+	// keys stored as 32 bit floats in the OMF it came from (KPF_FLOAT)
+	bool		float_keys() const { return m_float_keys; }
+	const xr_motion_marks_vec&	marks() const { return m_marks; }
+
 	uint8_t		bone_motion_flags(uint16_t bone_id) const;
 
 	enum motion_flag {
@@ -104,6 +117,7 @@ protected:
 	float				m_falloff;
 	float				m_power;
 	unsigned			m_flags;
+	bool				m_float_keys;
 
 	xr_motion_marks_vec		m_marks;
 };

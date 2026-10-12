@@ -13,11 +13,11 @@ struct xr_ogf_v4::bone_io: public xr_bone {
 };
 
 struct xr_ogf_v4::partition_io: public xr_partition {
-	void	import(xr_reader& r, xr_bone_vec& all_bones);
+	void	import(xr_reader& r, xr_bone_vec& all_bones, bool& nameless);
 };
 
 struct xr_ogf_v4::bone_motion_io: public xr_ogf::bone_motion_io {
-	void	import(xr_reader& r, uint_fast32_t num_keys);
+	unsigned	import(xr_reader& r, uint_fast32_t num_keys);	// returns the key flags
 };
 
 struct xr_ogf_v4::motion_io: public xr_skl_motion {
@@ -289,13 +289,21 @@ void xr_ogf_v4::load_s_lods(xr_reader& r)
 	set_chunk_loaded(OGF4_S_LODS);
 }
 
-void xr_ogf_v4::bone_motion_io::import(xr_reader& r, uint_fast32_t num_keys)
+unsigned xr_ogf_v4::bone_motion_io::import(xr_reader& r, uint_fast32_t num_keys)
 {
 	create_envelopes();
 
 	unsigned flags = r.r_u8();
 
-	if (flags & KPF_R_ABSENT) {
+	if (flags & KPF_FLOAT) {
+		if (flags & KPF_R_ABSENT) {
+			insert_key(0, r.skip<ogf_key_qr_float>());
+		} else {
+			r.r_u32();
+			for (size_t i = 0; i != num_keys; ++i)
+				insert_key(i/OGF4_MOTION_FPS, r.skip<ogf_key_qr_float>());
+		}
+	} else if (flags & KPF_R_ABSENT) {
 		insert_key(0, r.skip<ogf_key_qr>());
 	} else {
 		r.r_u32();
@@ -305,7 +313,10 @@ void xr_ogf_v4::bone_motion_io::import(xr_reader& r, uint_fast32_t num_keys)
 	if (flags & KPF_T_PRESENT) {
 		r.r_u32();
 		fvector3 t_init, t_size, value;
-		if (flags & KPF_T_HQ) {
+		if (flags & KPF_FLOAT) {
+			for (uint_fast32_t i = 0; i != num_keys; ++i)
+				insert_key(float(i)/OGF4_MOTION_FPS, r.skip<fvector3>());
+		} else if (flags & KPF_T_HQ) {
 			const ogf4_key_qt_hq* keys_qt = r.skip<ogf4_key_qt_hq>(num_keys);
 			r.r_fvector3(t_size);
 			r.r_fvector3(t_init);
@@ -327,6 +338,7 @@ void xr_ogf_v4::bone_motion_io::import(xr_reader& r, uint_fast32_t num_keys)
 	} else {
 		insert_key(0, r.skip<fvector3>());
 	}
+	return flags;
 }
 
 inline void xr_ogf_v4::motion_io::import_bone_motions(xr_reader& r, xr_bone_vec& all_bones)
@@ -340,7 +352,8 @@ inline void xr_ogf_v4::motion_io::import_bone_motions(xr_reader& r, xr_bone_vec&
 	for (xr_bone_vec_it it = all_bones.begin(), end = all_bones.end(); it != end; ++it) {
 		xr_ogf_v4::bone_motion_io* bm = new xr_ogf_v4::bone_motion_io;
 		bm->name() = (*it)->name();
-		bm->import(r, num_keys);
+		if (bm->import(r, num_keys) & KPF_FLOAT)
+			m_float_keys = true;
 		m_bone_motions.push_back(bm);
 	}
 }
@@ -374,14 +387,26 @@ void xr_ogf_v4::load_s_motions(xr_reader& r)
 	set_chunk_loaded(OGF4_S_MOTIONS);
 }
 
-inline void xr_ogf_v4::partition_io::import(xr_reader& r, xr_bone_vec& all_bones)
+inline void xr_ogf_v4::partition_io::import(xr_reader& r, xr_bone_vec& all_bones, bool& nameless)
 {
 	r.r_sz(m_name);
 	std::string name;
 	for (uint_fast32_t n = r.r_u16(); n; --n) {
-		r.r_sz(name);
+		name.clear();
+		if (!nameless) {
+			r.r_sz(name);
+			// Some OMFs - weapon_lowered.omf of Clear Sky, for one - hold
+			// their bones as bare ids. The zero read as a terminator is the
+			// first byte of such an id, so it goes back.
+			if (name.empty()) {
+				r.seek(r.tell() - 1);
+				nameless = true;
+			}
+		}
 		uint_fast32_t id = r.r_u32();
-		xr_assert(id < MAX_BONES);
+		// only a sanity check: modded models go past the stock 64 bones,
+		// the engine keeps bone ids as u16 (BI_NONE = 0xffff)
+		xr_assert(id < UINT16_MAX);
 		if (all_bones.size() <= id)
 			all_bones.resize(id + 1);
 		if (all_bones[id] == 0) {
@@ -424,11 +449,13 @@ inline uint16_t xr_ogf_v4::motion_io::import_params(xr_reader& r, unsigned versi
 
 struct read_partition_v4 {
 	xr_bone_vec& all_bones;
-	read_partition_v4(xr_bone_vec& _all_bones): all_bones(_all_bones) {}
+	bool& nameless;
+	read_partition_v4(xr_bone_vec& _all_bones, bool& _nameless):
+		all_bones(_all_bones), nameless(_nameless) {}
 	void operator()(xr_partition*& _part, xr_reader& r) {
 		xr_ogf_v4::partition_io* part = new xr_ogf_v4::partition_io;
 		_part = part;
-		part->import(r, all_bones);
+		part->import(r, all_bones, nameless);
 	}
 };
 
@@ -438,7 +465,9 @@ void xr_ogf_v4::load_s_smparams(xr_reader& r)
 	xr_assert(version == OGF4_S_SMPARAMS_VERSION_3 || version == OGF4_S_SMPARAMS_VERSION_4);
 
 	assert(m_partitions.empty());
-	r.r_seq(r.r_u16(), m_partitions, read_partition_v4(m_bones));
+	// once one partition turns out to hold bare ids, the rest of them do too
+	bool nameless = false;
+	r.r_seq(r.r_u16(), m_partitions, read_partition_v4(m_bones, nameless));
 	setup_partitions();
 
 	assert(m_motions.empty());

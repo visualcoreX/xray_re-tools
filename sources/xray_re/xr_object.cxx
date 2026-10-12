@@ -180,6 +180,14 @@ void xr_object::load_object(xr_reader& r)
 	if (r.find_chunk(EOBJ_CHUNK_MOTION_REFS)) {
 		r.r_sz(m_motion_refs);
 		r.debug_find_chunk();
+	} else if (r.find_chunk(EOBJ_CHUNK_MOTION_REFS_1)) {
+		// kept comma separated like the old chunk
+		for (uint_fast32_t n = r.r_u32(); n != 0; --n) {
+			if (!m_motion_refs.empty())
+				m_motion_refs += ',';
+			m_motion_refs += r.skip_sz();
+		}
+		r.debug_find_chunk();
 	}
 	if (r.find_chunk(EOBJ_CHUNK_PARTITIONS_0)) {
 		r.r_seq(r.r_u32(), m_partitions, read_partition_0(m_bones));
